@@ -195,7 +195,7 @@ enforce_typescript: true
 ### Step 5: Establish Project Governance
 
 ```bash
-/specswarm:constitution
+/ss:constitution
 ```
 
 **What it does**:
@@ -250,7 +250,7 @@ Use SpecLabs Autonomous ✨
 
 **Or use AI recommendation**:
 ```bash
-/specswarm:suggest "your feature idea"
+/ss:suggest "your feature idea"
 ```
 
 ### Workflow A: Autonomous (SpecLabs - Faster)
@@ -302,7 +302,7 @@ npm run dev
 # - Mobile/desktop
 
 # 8. Fix any bugs found
-/specswarm:bugfix "Bug 001: Login fails when password contains special characters
+/ss:bugfix "Bug 001: Login fails when password contains special characters
 
 Console errors:
 TypeError: Cannot read property 'validate' of undefined
@@ -322,12 +322,12 @@ Steps to reproduce:
 5. Nothing happens, console shows error"
 
 # 9. Check quality before merge
-/specswarm:analyze-quality
+/ss:analyze-quality
 
 # Should show score >85
 
 # 10. Complete and merge
-/specswarm:complete
+/ss:complete
 
 # Shows merge plan, asks for confirmation
 ```
@@ -343,13 +343,13 @@ Steps to reproduce:
 git checkout develop
 
 # 2. Get workflow recommendation
-/specswarm:suggest "migrate from Redux to React Router v7 loaders"
+/ss:suggest "migrate from Redux to React Router v7 loaders"
 
 # 3. Create specification
-/specswarm:specify "Migrate from Redux Toolkit to React Router v7 data loading patterns. Replace all Redux slices and sagas with route loaders and actions. Maintain exact same functionality and user experience."
+/ss:specify "Migrate from Redux Toolkit to React Router v7 data loading patterns. Replace all Redux slices and sagas with route loaders and actions. Maintain exact same functionality and user experience."
 
 # 4. Clarify requirements (if needed)
-/specswarm:clarify
+/ss:clarify
 
 # SpecSwarm asks targeted questions like:
 # - Which routes currently use Redux?
@@ -357,7 +357,7 @@ git checkout develop
 # - What's the error handling strategy?
 
 # 5. Generate implementation plan
-/specswarm:plan
+/ss:plan
 
 # Creates plan.md with:
 # - Architecture decisions
@@ -368,14 +368,14 @@ git checkout develop
 # Review plan.md before proceeding!
 
 # 6. Generate task breakdown
-/specswarm:tasks
+/ss:tasks
 
 # Creates tasks.md with dependency-ordered tasks
 
 # Review tasks.md - make sure it makes sense!
 
 # 7. Execute implementation
-/specswarm:implement
+/ss:implement
 
 # Executes all tasks sequentially
 # - Shows progress
@@ -387,13 +387,13 @@ npm run dev
 # Test thoroughly!
 
 # 9. Fix bugs
-/specswarm:bugfix "Bug 002: ..."
+/ss:bugfix "Bug 002: ..."
 
 # 10. Quality check
-/specswarm:analyze-quality
+/ss:analyze-quality
 
 # 11. Complete and merge
-/specswarm:complete
+/ss:complete
 ```
 
 ---
@@ -423,12 +423,12 @@ Always test manually, even with `--validate` flag!
 - [ ] Database transactions work
 - [ ] Performance is acceptable (check query counts)
 
-### Using `/specswarm:bugfix` Effectively
+### Using `/ss:bugfix` Effectively
 
 **Good bug report format**:
 
 ```bash
-/specswarm:bugfix "Bug 003: Shopping cart quantity update fails
+/ss:bugfix "Bug 003: Shopping cart quantity update fails
 
 **Description**: When user changes quantity in cart, the total doesn't update
 
@@ -469,10 +469,10 @@ None
 - Easier to reproduce and fix
 - Creates better documentation
 
-### Interpreting `/specswarm:analyze-quality` Results
+### Interpreting `/ss:analyze-quality` Results
 
 ```bash
-/specswarm:analyze-quality
+/ss:analyze-quality
 ```
 
 **Sample output**:
@@ -502,10 +502,10 @@ Recommendations:
 
 ## Completion and Merge
 
-### The `/specswarm:complete` Command
+### The `/ss:complete` Command
 
 ```bash
-/specswarm:complete
+/ss:complete
 ```
 
 **What happens** (v2.1.2+):
@@ -558,7 +558,7 @@ Recommendations:
    - Offers to delete remote branch
 
 **Best practices**:
-- ✅ Always run `/specswarm:analyze-quality` first
+- ✅ Always run `/ss:analyze-quality` first
 - ✅ Review the merge plan carefully
 - ✅ Push to remote if working in a team
 - ✅ Keep feature branches for a while (easy rollback)
@@ -576,7 +576,7 @@ Recommendations:
 git checkout develop
 
 # Get recommendation
-/specswarm:suggest "add contact form with name, email, message fields"
+/ss:suggest "add contact form with name, email, message fields"
 # → Recommends: SpecLabs autonomous
 
 # Execute
@@ -591,11 +591,11 @@ npm run dev
 # No bugs found! 🎉
 
 # Quality check
-/specswarm:analyze-quality
+/ss:analyze-quality
 # Score: 91/100 ✅
 
 # Complete and merge
-/specswarm:complete
+/ss:complete
 ```
 
 **Time**: ~45 minutes (vs 2 hours manual)
@@ -609,24 +609,24 @@ npm run dev
 git checkout develop
 
 # This is complex, use manual workflow
-/specswarm:specify "Migrate authentication from Firebase to custom JWT-based system. Replace all Firebase auth calls with custom JWT API. Maintain same user experience. Support refresh tokens, password reset, and email verification."
+/ss:specify "Migrate authentication from Firebase to custom JWT-based system. Replace all Firebase auth calls with custom JWT API. Maintain same user experience. Support refresh tokens, password reset, and email verification."
 
 # Clarify requirements
-/specswarm:clarify
+/ss:clarify
 # Answer ~5 questions about implementation details
 
 # Review plan
-/specswarm:plan
+/ss:plan
 cat features/016-*/plan.md
 # Review carefully - this is complex!
 
 # Generate tasks
-/specswarm:tasks
+/ss:tasks
 cat features/016-*/tasks.md
 # 45 tasks identified
 
 # Implement
-/specswarm:implement
+/ss:implement
 
 # Test thoroughly (auth is critical!)
 npm run dev
@@ -635,20 +635,20 @@ npm run dev
 # Found 3 bugs during testing
 
 # Fix Bug 1
-/specswarm:bugfix "Bug: Refresh token expires too quickly..."
+/ss:bugfix "Bug: Refresh token expires too quickly..."
 
 # Fix Bug 2
-/specswarm:bugfix "Bug: Password reset email not sending..."
+/ss:bugfix "Bug: Password reset email not sending..."
 
 # Fix Bug 3
-/specswarm:bugfix "Bug: Email verification link invalid..."
+/ss:bugfix "Bug: Email verification link invalid..."
 
 # Quality check
-/specswarm:analyze-quality
+/ss:analyze-quality
 # Score: 88/100 ✅
 
 # Complete
-/specswarm:complete
+/ss:complete
 ```
 
 **Time**: ~2 days (vs 3-4 days manual + potential security issues)
@@ -662,7 +662,7 @@ npm run dev
 git checkout develop
 
 # Use bugfix workflow (creates regression test!)
-/specswarm:bugfix "Bug: Cart total calculation incorrect when discount codes applied
+/ss:bugfix "Bug: Cart total calculation incorrect when discount codes applied
 
 **Console Errors**:
 None
@@ -702,7 +702,7 @@ npm run dev
 # Verify fix works
 
 # Complete
-/specswarm:complete
+/ss:complete
 ```
 
 **Time**: ~30 minutes (includes regression test!)
@@ -741,7 +741,7 @@ cat features/015-*/spec.md | grep parent_branch
 # If wrong, you can:
 # 1. Cancel the merge (press 'n')
 # 2. Manually edit spec.md frontmatter
-# 3. Run /specswarm:complete again
+# 3. Run /ss:complete again
 
 # Or merge manually:
 git checkout correct-parent-branch
@@ -755,7 +755,7 @@ git merge --no-ff 015-feature-branch
 **Solution**:
 ```bash
 # Check what's failing
-/specswarm:analyze-quality
+/ss:analyze-quality
 
 # Common fixes:
 # - Add missing tests (unit, integration)
@@ -765,7 +765,7 @@ git merge --no-ff 015-feature-branch
 # - Add error handling
 
 # Then re-check
-/specswarm:analyze-quality
+/ss:analyze-quality
 ```
 
 #### Issue: "Orchestrate-feature pauses mid-execution"
@@ -809,23 +809,23 @@ git merge --no-ff 015-feature-branch
 2. Install plugins
 3. Create tech-stack.md
 4. Create quality-standards.md
-5. Run /specswarm:constitution
+5. Run /ss:constitution
 
 **Per Feature (Autonomous)**:
 1. git checkout develop
-2. /specswarm:suggest "feature"
+2. /ss:suggest "feature"
 3. /speclabs:orchestrate-feature "detailed description" --validate
 4. Manual testing
-5. /specswarm:bugfix (if needed)
-6. /specswarm:analyze-quality
-7. /specswarm:complete
+5. /ss:bugfix (if needed)
+6. /ss:analyze-quality
+7. /ss:complete
 
 **Per Feature (Manual)**:
 1. git checkout develop
-2. /specswarm:specify → clarify → plan → tasks → implement
+2. /ss:specify → clarify → plan → tasks → implement
 3. Manual testing
-4. /specswarm:bugfix (if needed)
-5. /specswarm:analyze-quality
-6. /specswarm:complete
+4. /ss:bugfix (if needed)
+5. /ss:analyze-quality
+6. /ss:complete
 
 **Happy coding!** 🚀

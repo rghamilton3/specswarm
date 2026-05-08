@@ -2,7 +2,7 @@
 
 **Fast reference for common SpecSwarm commands and workflows.**
 
-**Version**: v4.0.1 | **Commands**: 10 visible + 11 internal | **Language-Agnostic**
+**Version**: v6.0.0 | **Commands**: 10 visible + 11 internal | **Language-Agnostic**
 
 ---
 
@@ -13,11 +13,11 @@
 /plugin marketplace add MartyBonacci/specswarm
 
 # Install the plugin
-/plugin install specswarm@specswarm-marketplace
+/plugin install ss@specswarm-marketplace
 
 # Verify
 /plugin list
-# Should show: specswarm v4.0.1
+# Should show: ss v6.0.0
 ```
 
 ---
@@ -28,7 +28,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                    PROJECT SETUP (Once)                     │
 ├─────────────────────────────────────────────────────────────┤
-│  /specswarm:init                                            │
+│  /ss:init                                            │
 │  Create .specswarm/tech-stack.md                            │
 │  Create .specswarm/quality-standards.md                     │
 └─────────────────────────────────────────────────────────────┘
@@ -37,11 +37,11 @@
 │              DEVELOPMENT WORKFLOWS                          │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  PROJECT SETUP: /specswarm:init                             │
-│  FEATURE DEV:   /specswarm:build "feature"  (or NL)        │
-│  BUG FIX:       /specswarm:fix "bug"                        │
-│  MODIFICATION:  /specswarm:modify "change"                  │
-│  SHIP:          /specswarm:ship                             │
+│  PROJECT SETUP: /ss:init                             │
+│  FEATURE DEV:   /ss:build "feature"  (or NL)        │
+│  BUG FIX:       /ss:fix "bug"                        │
+│  MODIFICATION:  /ss:modify "change"                  │
+│  SHIP:          /ss:ship                             │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -55,18 +55,18 @@
 │  WHICH WORKFLOW SHOULD I USE?                                │
 └───────────────────────────────────────────────────────────────┘
   │
-  ├─ New Feature       → /specswarm:build "feature"
+  ├─ New Feature       → /ss:build "feature"
   │
-  ├─ Bug Fix           → /specswarm:fix "bug"
-  │   └─ Production?   → /specswarm:fix "bug" --hotfix
+  ├─ Bug Fix           → /ss:fix "bug"
+  │   └─ Production?   → /ss:fix "bug" --hotfix
   │
-  ├─ Code Improvement  → /specswarm:modify "change"
-  │   ├─ Quality?      → /specswarm:modify "change" --refactor
-  │   └─ Sunset?       → /specswarm:modify "change" --deprecate
+  ├─ Code Improvement  → /ss:modify "change"
+  │   ├─ Quality?      → /ss:modify "change" --refactor
+  │   └─ Sunset?       → /ss:modify "change" --deprecate
   │
-  ├─ Impact Analysis   → /specswarm:modify "change" --analyze-only
+  ├─ Impact Analysis   → /ss:modify "change" --analyze-only
   │
-  └─ Quality Check     → /specswarm:ship (includes quality gate)
+  └─ Quality Check     → /ss:ship (includes quality gate)
 ```
 
 ---
@@ -77,16 +77,16 @@
 
 | Command | Use When | Example |
 |---------|----------|---------|
-| `/specswarm:init` | Project setup | `/specswarm:init` |
-| `/specswarm:build` | New feature | `/specswarm:build "Add user login"` |
-| `/specswarm:fix` | Bug fix | `/specswarm:fix "Login fails on mobile"` |
-| `/specswarm:modify` | Change feature | `/specswarm:modify "Update cart logic"` |
-| `/specswarm:ship` | Finish & merge | `/specswarm:ship` |
-| `/specswarm:fix --hotfix` | Emergency fix | `/specswarm:fix "API down" --hotfix` |
-| `/specswarm:modify --refactor` | Improve code | `/specswarm:modify "Optimize auth" --refactor` |
-| `/specswarm:modify --deprecate` | Remove feature | `/specswarm:modify "Old API v1" --deprecate` |
-| `/specswarm:modify --analyze-only` | Assess changes | `/specswarm:modify "Update React" --analyze-only` |
-| `/specswarm:analyze-quality` | Quality check | `/specswarm:analyze-quality` |
+| `/ss:init` | Project setup | `/ss:init` |
+| `/ss:build` | New feature | `/ss:build "Add user login"` |
+| `/ss:fix` | Bug fix | `/ss:fix "Login fails on mobile"` |
+| `/ss:modify` | Change feature | `/ss:modify "Update cart logic"` |
+| `/ss:ship` | Finish & merge | `/ss:ship` |
+| `/ss:fix --hotfix` | Emergency fix | `/ss:fix "API down" --hotfix` |
+| `/ss:modify --refactor` | Improve code | `/ss:modify "Optimize auth" --refactor` |
+| `/ss:modify --deprecate` | Remove feature | `/ss:modify "Old API v1" --deprecate` |
+| `/ss:modify --analyze-only` | Assess changes | `/ss:modify "Update React" --analyze-only` |
+| `/ss:analyze-quality` | Quality check | `/ss:analyze-quality` |
 
 ---
 
@@ -95,16 +95,16 @@
 ### Pattern 1: Feature Development
 
 ```bash
-/specswarm:build "Add contact form with name, email, message fields, validation, and email sending"
+/ss:build "Add contact form with name, email, message fields, validation, and email sending"
 # → Creates branch, specs, plans, implements, tests
 # → Manual testing
-/specswarm:ship
+/ss:ship
 ```
 
 ### Pattern 2: Bug Fix with Regression Test
 
 ```bash
-/specswarm:fix "Bug: Cart total wrong when discount applied
+/ss:fix "Bug: Cart total wrong when discount applied
 
 Console: None
 Terminal: None
@@ -118,22 +118,22 @@ Steps:
 3. Checkout shows $90 instead of $88"
 
 # → Manual testing
-/specswarm:ship
+/ss:ship
 ```
 
 ### Pattern 3: Code Modification
 
 ```bash
-/specswarm:modify "Migrate auth from session to JWT"
+/ss:modify "Migrate auth from session to JWT"
 # → Manual testing
-/specswarm:ship
+/ss:ship
 ```
 
 ### Pattern 4: Quality Check Before PR
 
 ```bash
 # Before creating pull request
-/specswarm:analyze-quality
+/ss:analyze-quality
 
 # If score < 85, fix issues:
 # - Add missing tests
@@ -141,7 +141,7 @@ Steps:
 # - Reduce bundle size
 
 # Re-check
-/specswarm:analyze-quality
+/ss:analyze-quality
 ```
 
 ---
@@ -194,7 +194,7 @@ max_file_lines: 300
 ### Build Flags
 
 ```bash
-/specswarm:build "description" [flags]
+/ss:build "description" [flags]
 
 --validate              # Run Playwright browser testing
 --audit                 # Run code audit
@@ -207,7 +207,7 @@ max_file_lines: 300
 ### Fix Flags
 
 ```bash
-/specswarm:fix "description" [flags]
+/ss:fix "description" [flags]
 
 --hotfix                # Emergency production fix (bypasses normal flow)
 ```
@@ -215,7 +215,7 @@ max_file_lines: 300
 ### Modify Flags
 
 ```bash
-/specswarm:modify "description" [flags]
+/ss:modify "description" [flags]
 
 --refactor              # Quality/code improvement
 --deprecate             # Sunset/remove feature
@@ -233,7 +233,7 @@ main
           └─ 015-feature-branch  ← You work here
 
 # When complete:
-/specswarm:ship
+/ss:ship
 # → Merges 015-feature-branch → sprint-3
 # → Shows merge plan BEFORE executing
 ```
@@ -243,13 +243,13 @@ main
 ```bash
 # Correct:
 git checkout sprint-3
-/specswarm:build "..."
+/ss:build "..."
 # → Creates branch FROM sprint-3
 # → Merges BACK TO sprint-3
 
 # Wrong:
 git checkout main
-/specswarm:build "..."
+/ss:build "..."
 # → Merges to main (bypasses sprint-3)
 ```
 
@@ -259,7 +259,7 @@ git checkout main
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  /specswarm:analyze-quality Score Interpretation         │
+│  /ss:analyze-quality Score Interpretation         │
 ├──────────────────────────────────────────────────────────┤
 │  90-100  │ ✅ Excellent  │ Ship with confidence          │
 │  80-89   │ ✅ Good       │ Minor issues, safe to merge   │
@@ -296,14 +296,14 @@ cat features/015-*/spec.md | grep parent_branch
 
 # If wrong, press 'n' when asked to merge
 # Edit spec.md frontmatter manually
-# Run /specswarm:complete again
+# Run /ss:complete again
 ```
 
 ### ❌ "Quality score too low"
 
 ```bash
 # Fix: Check what's failing
-/specswarm:analyze-quality
+/ss:analyze-quality
 
 # Common fixes:
 # - Add unit tests
@@ -315,8 +315,8 @@ cat features/015-*/spec.md | grep parent_branch
 ### "Orchestration pauses mid-execution"
 
 ```bash
-# Fix: Update to v4.0.1+
-/plugin update specswarm
+# Fix: Update to v4.0.1 or later (v6.0.0 satisfies)
+/plugin update ss
 
 # v3.0+ eliminated all mid-phase pausing (autonomous execution)
 ```
@@ -367,7 +367,7 @@ project-root/
 ## Version Information
 
 This cheat sheet is for:
-- **SpecSwarm**: v4.0.1
+- **SpecSwarm**: v6.0.0
   - Compacted from 32/35 commands to 21 (10 visible + 11 internal)
   - Natural language commands (build, fix, ship, modify)
   - Language-agnostic (works with any language Claude supports)

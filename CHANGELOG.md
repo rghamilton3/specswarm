@@ -5,6 +5,47 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.0.0] - 2026-05-08 - Single `/ss:*` Command Surface (BREAKING)
+
+**The `/specswarm:*` command prefix is gone.** All 21 commands (10 user-visible + 11 internal/hidden) now live under `/ss:*` in the canonical `ss` plugin. The `specswarm` plugin remains as a deprecation stub with no commands; it will be removed entirely in v7.0.0.
+
+The "SpecSwarm" name lives on at every level except the command prefix:
+- The marketplace is still called `specswarm-marketplace`
+- The plugin description still leads with "SpecSwarm: …"
+- The per-project state directory `.specswarm/` is unchanged
+- The README, CHANGELOG, and brand are all "SpecSwarm"
+
+Only the `/specswarm:` CLI prefix is gone — replaced by `/ss:`.
+
+### Migration Guide
+For users with v5.x installed:
+
+1. Install the canonical plugin: `/plugin install ss@specswarm-marketplace`
+2. Uninstall the deprecated stub: `/plugin uninstall specswarm` (or wait for v7.0.0 to remove it)
+3. Update any project documentation, scripts, and CLAUDE.md references: replace `/specswarm:` with `/ss:` (sed: `sed -i 's|/specswarm:|/ss:|g' …`)
+4. Update any references to `specswarm-build`, `specswarm-fix`, etc. skill names — they're now `ss-build`, `ss-fix`, etc. (Skill IDs only — natural-language triggering is unchanged.)
+5. Restart Claude Code so skill prompts re-cache
+
+The 5-command workflow (`init` → `build` → `fix`/`modify` → `ship`) is unchanged. Only the prefix differs.
+
+### Breaking Changes
+- `/specswarm:build`, `/specswarm:fix`, `/specswarm:ship`, `/specswarm:modify`, `/specswarm:init`, `/specswarm:status`, `/specswarm:metrics`, `/specswarm:release`, `/specswarm:rollback`, `/specswarm:upgrade` no longer exist. Use `/ss:*` instead.
+- The 11 internal/hidden commands (`specify`, `plan`, `tasks`, `implement`, `clarify`, `complete`, `constitution`, `bugfix`, `hotfix`, `validate`, `analyze-quality`) moved from `/specswarm:*` to `/ss:*`. These are invoked internally by the workflows; users who hand-invoked them directly need to update.
+- Skill IDs `specswarm-{build,fix,init,metrics,modify,release,rollback,ship,status,upgrade}` are renamed to `ss-{...}`. The skill descriptions and natural-language triggers are unchanged.
+
+### Changed
+- `plugins/specswarm/` is now a deprecation stub with only a `plugin.json`. No commands, skills, hooks, agents, lib, or templates remain there.
+- All implementation moved to `plugins/ss/`: 21 commands, 10 skills (renamed `ss-*`), 2 agents, 5 hooks, 6 lib helpers, 8 templates, 2 rules.
+- 14 inter-command `SlashCommand` invocations (e.g., `/specswarm:build` → `/specswarm:specify`) rewritten to `/ss:*`.
+- `README.md`, `COMMANDS.md`, `CLAUDE.md` updated throughout to reference `/ss:*`.
+- `.claude-plugin/marketplace.json`: `ss` becomes the canonical plugin (full description, all keywords, version 6.0.0). `specswarm` entry retained with deprecation message.
+
+### Why a hard cut
+- Single user-facing surface — no parallel command sets to maintain or wonder about.
+- Eliminates the wrapper `SlashCommand` hop on every top-level command (the old `/ss:build` → `/specswarm:build` indirection is gone).
+- 6 months of `/ss:*` use already validated this is the prefix users want; v5.2.0 and v5.3.0 progressively prepared this migration.
+- The deprecation stub plugin keeps users with old installs from getting orphaned errors.
+
 ## [5.3.0] - 2026-05-08 - Invisible Magic Upgrades
 
 Six high-leverage behaviors added invisibly inside the existing 5 commands. **No new commands. No new flags users must learn.** Same 5-command UX (`init`, `build`, `fix`, `modify`, `ship`), smarter behavior.

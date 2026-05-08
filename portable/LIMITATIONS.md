@@ -18,7 +18,7 @@ These features require the marketplace plugin system and cannot be replicated in
 
 **CRITICAL:** The command prefix is different:
 
-- **Plugin:** `/specswarm:*`
+- **Plugin:** `/ss:*`
 - **Portable:** `/sw:*`
 
 This is not just a shorthand - they are completely different namespaces. If you install the portable version, you **must** use `/sw:*` commands.
@@ -44,7 +44,7 @@ This is not just a shorthand - they are completely different namespaces. If you 
 **Plugin Version:**
 ```
 User: "Build user authentication"
-[Claude automatically detects intent and runs /specswarm:build]
+[Claude automatically detects intent and runs /ss:build]
 ```
 
 **Portable Version:**
@@ -123,9 +123,9 @@ fi
 
 ## Migration from Plugin
 
-If you previously used the plugin version (`/specswarm:*`), here's what changes:
+If you previously used the plugin version (`/ss:*`), here's what changes:
 
-1. **Command prefix**: `/specswarm:` → `/sw:`
+1. **Command prefix**: `/ss:` → `/sw:`
 2. **Natural language**: No longer automatic, use `/sw:router`
 3. **Skill triggers**: No auto-execution, use explicit commands
 
@@ -143,7 +143,7 @@ Your existing `.specswarm/` configuration and feature artifacts are fully compat
 - Using Claude Code Web interface
 - Need per-project installation
 - Can't install marketplace plugins
-- Want shorter command prefix (`/sw:` vs `/specswarm:`)
+- Want shorter command prefix (`/sw:` vs `/ss:`)
 - Sharing projects with team members who don't have the plugin
 
 ## Questions?

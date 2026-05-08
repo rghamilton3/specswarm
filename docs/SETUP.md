@@ -27,7 +27,7 @@ Install SpecSwarm from GitHub in two simple steps:
 /plugin marketplace add MartyBonacci/specswarm
 
 # 2. Install the plugin
-/plugin install specswarm@MartyBonacci
+/plugin install ss@MartyBonacci
 ```
 
 Restart Claude Code to activate the plugin.
@@ -39,7 +39,7 @@ Restart Claude Code to activate the plugin.
 /plugin list
 
 # You should see:
-# specswarm@MartyBonacci v3.5.0
+# ss@MartyBonacci v6.0.0
 ```
 
 ---
@@ -111,12 +111,12 @@ my-project/
 
 ## Configuration
 
-### Recommended: Use `/specswarm:init`
+### Recommended: Use `/ss:init`
 
 The easiest way to configure SpecSwarm:
 
 ```bash
-/specswarm:init
+/ss:init
 ```
 
 **What it creates:**
@@ -335,7 +335,7 @@ npx vite-bundle-visualizer
 # - Dependency audit: Remove large unused libs
 
 # 3. Re-validate
-/specswarm:analyze-quality
+/ss:analyze-quality
 ```
 
 ---
@@ -372,9 +372,9 @@ SpecSwarm automatically detects:
 - Identical functionality
 
 **Commands that use MCP:**
-- `/specswarm:bugfix` - Enhanced error diagnostics
-- `/specswarm:fix` - Retry diagnostics with console monitoring
-- `/specswarm:validate` - Browser automation with real-time logs
+- `/ss:bugfix` - Enhanced error diagnostics
+- `/ss:fix` - Retry diagnostics with console monitoring
+- `/ss:validate` - Browser automation with real-time logs
 
 **Not applicable to:**
 - Python projects
@@ -389,7 +389,7 @@ SpecSwarm automatically detects:
 
 ### Create Minimal Configuration
 
-If you want to skip `/specswarm:init`:
+If you want to skip `/ss:init`:
 
 **1. Create directory:**
 ```bash
@@ -430,7 +430,7 @@ git commit -m "Initialize SpecSwarm configuration"
 
 ### Quality Validation Not Running
 
-**Symptom:** `/specswarm:implement` or `/specswarm:analyze-quality` doesn't validate
+**Symptom:** `/ss:implement` or `/ss:analyze-quality` doesn't validate
 
 **Solution:**
 ```bash
@@ -438,7 +438,7 @@ git commit -m "Initialize SpecSwarm configuration"
 ls .specswarm/quality-standards.md
 
 # If missing, create it:
-/specswarm:init
+/ss:init
 ```
 
 ### Tech Stack Drift Not Detected
@@ -524,7 +524,7 @@ npm uninstall unused-package
 **Solution:**
 ```bash
 # Run any SpecSwarm command to trigger auto-migration
-/specswarm:init
+/ss:init
 
 # Or manually:
 mv features .specswarm/features
@@ -532,7 +532,7 @@ mv features .specswarm/features
 
 ### Plugin Not Loading
 
-**Symptom:** `/specswarm:*` commands not recognized
+**Symptom:** `/ss:*` commands not recognized
 
 **Solutions:**
 
@@ -543,7 +543,7 @@ mv features .specswarm/features
 
 **2. Reinstall if missing:**
 ```bash
-/plugin install specswarm@MartyBonacci
+/plugin install ss@MartyBonacci
 ```
 
 **3. Restart Claude Code:**
@@ -558,7 +558,7 @@ mv features .specswarm/features
 
 ### Natural Language Skills Not Triggering
 
-**Symptom:** "Build auth" doesn't trigger `/specswarm:build`
+**Symptom:** "Build auth" doesn't trigger `/ss:build`
 
 **Possible causes:**
 
@@ -578,7 +578,7 @@ rm -rf ~/.claude/skills/specswarm-*
 
 **3. Insufficient confidence:**
 - Try more specific phrasing: "Build user authentication with JWT"
-- Or use slash command: `/specswarm:build "auth"`
+- Or use slash command: `/ss:build "auth"`
 
 ### Permission Errors
 
@@ -631,7 +631,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - run: /specswarm:analyze-quality
+      - run: /ss:analyze-quality
       - run: exit ${{ quality_score >= 80 ? 0 : 1 }}
 ```
 
@@ -645,4 +645,4 @@ jobs:
 
 ---
 
-**SpecSwarm v4.0.1** - Complete setup guide
+**SpecSwarm v6.0.0** - Complete setup guide

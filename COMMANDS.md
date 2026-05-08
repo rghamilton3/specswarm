@@ -16,13 +16,13 @@ Complete documentation for all SpecSwarm commands: **10 visible** + **11 interna
 
 These 5 commands handle the vast majority of daily development work. **Start here** if you're new to SpecSwarm.
 
-### `/specswarm:init`
+### `/ss:init`
 
 Initialize SpecSwarm in your project with interactive setup wizard.
 
 **Usage:**
 ```bash
-/specswarm:init
+/ss:init
 ```
 
 **What it does:**
@@ -38,13 +38,13 @@ Initialize SpecSwarm in your project with interactive setup wizard.
 
 ---
 
-### `/specswarm:build`
+### `/ss:build`
 
 Complete workflow for building new features from natural language description.
 
 **Usage:**
 ```bash
-/specswarm:build "feature description"
+/ss:build "feature description"
 ```
 
 **Natural Language:**
@@ -82,13 +82,13 @@ Complete workflow for building new features from natural language description.
 
 ---
 
-### `/specswarm:fix`
+### `/ss:fix`
 
 Complete workflow for fixing bugs with regression testing.
 
 **Usage:**
 ```bash
-/specswarm:fix "bug description"
+/ss:fix "bug description"
 ```
 
 **Natural Language:**
@@ -124,13 +124,13 @@ Complete workflow for fixing bugs with regression testing.
 
 ---
 
-### `/specswarm:modify`
+### `/ss:modify`
 
 Change existing feature behavior with impact analysis and backward compatibility assessment.
 
 **Usage:**
 ```bash
-/specswarm:modify "modification description"
+/ss:modify "modification description"
 ```
 
 **Natural Language:**
@@ -159,7 +159,7 @@ Change existing feature behavior with impact analysis and backward compatibility
 - Features that work but need to work differently
 - Changing implementation approach
 - Enhancing existing functionality
-- NOT for bugs (use `/specswarm:fix`)
+- NOT for bugs (use `/ss:fix`)
 - For code quality improvements, use `--refactor` flag
 
 **Examples:**
@@ -170,13 +170,13 @@ Change existing feature behavior with impact analysis and backward compatibility
 
 ---
 
-### `/specswarm:ship`
+### `/ss:ship`
 
 Validate quality, merge to parent branch, and complete feature.
 
 **Usage:**
 ```bash
-/specswarm:ship
+/ss:ship
 ```
 
 **Natural Language:**
@@ -218,13 +218,13 @@ Validate quality, merge to parent branch, and complete feature.
 
 These 5 commands cover workflows that can't be expressed as flags on the core 5.
 
-### `/specswarm:release`
+### `/ss:release`
 
 Complete release workflow with versioning, changelog, and deployment.
 
 **Usage:**
 ```bash
-/specswarm:release [--skip-security]
+/ss:release [--skip-security]
 ```
 
 **What it does:**
@@ -242,13 +242,13 @@ Complete release workflow with versioning, changelog, and deployment.
 
 ---
 
-### `/specswarm:upgrade`
+### `/ss:upgrade`
 
 Systematic dependency/framework upgrade with compatibility analysis.
 
 **Usage:**
 ```bash
-/specswarm:upgrade "upgrade description"
+/ss:upgrade "upgrade description"
 ```
 
 **Natural Language:**
@@ -274,13 +274,13 @@ Systematic dependency/framework upgrade with compatibility analysis.
 
 ---
 
-### `/specswarm:rollback`
+### `/ss:rollback`
 
 Safe rollback to previous version with validation.
 
 **Usage:**
 ```bash
-/specswarm:rollback [--skip-confirm]
+/ss:rollback [--skip-confirm]
 ```
 
 **What it does:**
@@ -300,24 +300,24 @@ Use `--skip-confirm` only in emergencies.
 
 ---
 
-### `/specswarm:status`
+### `/ss:status`
 
 Check background session progress. Required when using `--background` on build/fix/release.
 
 **Usage:**
 ```bash
-/specswarm:status
+/ss:status
 ```
 
 ---
 
-### `/specswarm:metrics`
+### `/ss:metrics`
 
 Feature-level orchestration metrics and analytics from completed features.
 
 **Usage:**
 ```bash
-/specswarm:metrics [--feature=001-feature-name]
+/ss:metrics [--feature=001-feature-name]
 ```
 
 **Flags:**
@@ -346,13 +346,13 @@ Feature-level orchestration metrics and analytics from completed features.
 
 These commands are used internally by the core workflows. They're hidden from command listings but can be called directly for re-running individual steps.
 
-### `/specswarm:specify`
+### `/ss:specify`
 
 Create detailed feature specification from natural language description.
 
 **Usage:**
 ```bash
-/specswarm:specify "Add user authentication with email/password"
+/ss:specify "Add user authentication with email/password"
 ```
 
 **What it creates:**
@@ -371,7 +371,7 @@ Called by: `build` (Step 2)
 
 ---
 
-### `/specswarm:clarify`
+### `/ss:clarify`
 
 Ask up to 5 targeted clarification questions and encode answers into specification.
 
@@ -379,7 +379,7 @@ Called by: `build` (Step 3)
 
 ---
 
-### `/specswarm:plan`
+### `/ss:plan`
 
 Design implementation plan with tech stack validation.
 
@@ -387,7 +387,7 @@ Called by: `build` (Step 4)
 
 ---
 
-### `/specswarm:tasks`
+### `/ss:tasks`
 
 Generate actionable, dependency-ordered task breakdown.
 
@@ -395,7 +395,7 @@ Called by: `build` (Step 5)
 
 ---
 
-### `/specswarm:implement`
+### `/ss:implement`
 
 Execute implementation plan with comprehensive quality validation.
 
@@ -403,7 +403,7 @@ Called by: `build` (Step 6)
 
 ---
 
-### `/specswarm:validate`
+### `/ss:validate`
 
 Browser automation validation with Playwright flow testing.
 
@@ -411,7 +411,7 @@ Called by: `build --validate`
 
 ---
 
-### `/specswarm:analyze-quality`
+### `/ss:analyze-quality`
 
 Comprehensive codebase quality analysis with prioritized recommendations.
 
@@ -426,7 +426,7 @@ Called by: `build` (Step 8), `ship` (Step 2)
 
 ---
 
-### `/specswarm:bugfix`
+### `/ss:bugfix`
 
 Regression-test-first bugfix workflow with auto-retry (max 2 attempts).
 
@@ -434,7 +434,7 @@ Called by: `fix` (internal)
 
 ---
 
-### `/specswarm:hotfix`
+### `/ss:hotfix`
 
 Expedited emergency response workflow for critical production issues. Minimal ceremony, fast diagnosis, essential testing only.
 
@@ -442,15 +442,15 @@ Called by: `fix --hotfix` (internal)
 
 ---
 
-### `/specswarm:complete`
+### `/ss:complete`
 
-Alias for `/specswarm:ship` - validates quality and merges feature.
+Alias for `/ss:ship` - validates quality and merges feature.
 
 Called by: `ship` (internal). Alias for ship.
 
 ---
 
-### `/specswarm:constitution`
+### `/ss:constitution`
 
 Create or update project constitution from interactive inputs. Generates `.specswarm/constitution.md` with project principles, code standards, decision-making guidelines, and technology preferences.
 
@@ -464,20 +464,20 @@ The following commands were removed and absorbed as flags:
 
 | Removed Command | Now Use |
 |----------------|---------|
-| `/specswarm:orchestrate-feature` | `/specswarm:build --orchestrate` |
-| `/specswarm:orchestrate` | `/specswarm:build --orchestrate` |
-| `/specswarm:orchestrate-validate` | `/specswarm:validate` |
-| `/specswarm:suggest` | Only 10 commands, no longer needed |
-| `/specswarm:session` | `/specswarm:status` |
-| `/specswarm:checkpoint` | `/specswarm:rollback` |
-| `/specswarm:analyze` | `/specswarm:build --analyze` |
-| `/specswarm:checklist` | `/specswarm:build --checklist` |
-| `/specswarm:coordinate` | `/specswarm:fix --coordinate` |
-| `/specswarm:impact` | `/specswarm:modify --analyze-only` |
-| `/specswarm:security-audit` | `/specswarm:ship --security-audit` |
-| `/specswarm:refactor` | `/specswarm:modify --refactor` |
-| `/specswarm:deprecate` | `/specswarm:modify --deprecate` |
-| `/specswarm:metrics-export` | `/specswarm:metrics --export` |
+| `/ss:orchestrate-feature` | `/ss:build --orchestrate` |
+| `/ss:orchestrate` | `/ss:build --orchestrate` |
+| `/ss:orchestrate-validate` | `/ss:validate` |
+| `/ss:suggest` | Only 10 commands, no longer needed |
+| `/ss:session` | `/ss:status` |
+| `/ss:checkpoint` | `/ss:rollback` |
+| `/ss:analyze` | `/ss:build --analyze` |
+| `/ss:checklist` | `/ss:build --checklist` |
+| `/ss:coordinate` | `/ss:fix --coordinate` |
+| `/ss:impact` | `/ss:modify --analyze-only` |
+| `/ss:security-audit` | `/ss:ship --security-audit` |
+| `/ss:refactor` | `/ss:modify --refactor` |
+| `/ss:deprecate` | `/ss:modify --deprecate` |
+| `/ss:metrics-export` | `/ss:metrics --export` |
 
 ---
 
@@ -487,9 +487,9 @@ The following commands were removed and absorbed as flags:
 
 | Command | Purpose | When to Use |
 |---------|---------|-------------|
-| `/specswarm:build` | New features | Building something that doesn't exist |
-| `/specswarm:fix` | Bug fixes | Something is broken or not working |
-| `/specswarm:modify` | Change behavior | Working feature needs to work differently |
+| `/ss:build` | New features | Building something that doesn't exist |
+| `/ss:fix` | Bug fixes | Something is broken or not working |
+| `/ss:modify` | Change behavior | Working feature needs to work differently |
 
 ---
 
@@ -498,49 +498,49 @@ The following commands were removed and absorbed as flags:
 ### Standard Feature Development
 
 ```bash
-/specswarm:build "feature description"
+/ss:build "feature description"
 # Or manually:
-/specswarm:specify -> /specswarm:clarify -> /specswarm:plan ->
-/specswarm:tasks -> /specswarm:implement -> /specswarm:ship
+/ss:specify -> /ss:clarify -> /ss:plan ->
+/ss:tasks -> /ss:implement -> /ss:ship
 ```
 
 ### Bug Fixing
 
 ```bash
-/specswarm:fix "bug description"
+/ss:fix "bug description"
 # Or for critical issues:
-/specswarm:fix --hotfix "emergency description"
+/ss:fix --hotfix "emergency description"
 ```
 
 ### Changing Existing Features
 
 ```bash
-/specswarm:modify "change description"
+/ss:modify "change description"
 ```
 
 ### Technology Upgrades
 
 ```bash
-/specswarm:upgrade "upgrade description"
+/ss:upgrade "upgrade description"
 ```
 
 ### Pre-Release Checklist
 
 ```bash
-/specswarm:analyze-quality
-/specswarm:ship --security-audit
-/specswarm:release
+/ss:analyze-quality
+/ss:ship --security-audit
+/ss:release
 ```
 
 ---
 
 ## Tips & Best Practices
 
-1. **Use `/specswarm:init` first** - Sets up proper foundation
+1. **Use `/ss:init` first** - Sets up proper foundation
 2. **Define tech-stack.md early** - Prevents technology drift
-3. **Run `/specswarm:analyze-quality` before shipping** - Catch issues early
+3. **Run `/ss:analyze-quality` before shipping** - Catch issues early
 4. **Enable quality gates** - Maintain >80% scores
-5. **Use `--background` for long builds** - Check progress with `/specswarm:status`
+5. **Use `--background` for long builds** - Check progress with `/ss:status`
 6. **Use `--orchestrate` for complex features** - Parallel execution speeds up builds
 7. **Call internal commands directly** - Re-run individual steps without restarting the whole workflow
 
@@ -553,4 +553,4 @@ The following commands were removed and absorbed as flags:
 
 ---
 
-**SpecSwarm v5.0.0** - Complete software development toolkit
+**SpecSwarm v6.0.0** - Complete software development toolkit

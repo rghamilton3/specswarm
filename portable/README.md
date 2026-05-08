@@ -33,15 +33,15 @@ echo "Installed! Run /sw:help for usage."
 
 | Installation Type | Command Prefix | Example |
 |-------------------|----------------|---------|
-| **Marketplace Plugin** | `/specswarm:*` | `/specswarm:build "feature"` |
+| **Marketplace Plugin** | `/ss:*` | `/ss:build "feature"` |
 | **Portable (this version)** | `/sw:*` | `/sw:build "feature"` |
 
 **Why different?**
-- Shorter prefix (`/sw:` vs `/specswarm:`) = less typing
+- Shorter prefix (`/sw:` vs `/ss:`) = less typing
 - Avoids conflicts if both are installed
 - Per-project installation vs global plugin
 
-**You cannot use `/specswarm:*` commands with the portable version** - only `/sw:*` commands will work.
+**You cannot use `/ss:*` commands with the portable version** - only `/sw:*` commands will work.
 
 ## Quick Start
 
@@ -87,14 +87,14 @@ Since the portable version doesn't have automatic skill detection, use `/sw:rout
 
 ## Differences from Plugin Version
 
-| Feature | Plugin (`/specswarm:*`) | Portable (`/sw:*`) |
+| Feature | Plugin (`/ss:*`) | Portable (`/sw:*`) |
 |---------|------------------------|-------------------|
 | Natural language auto-routing | Automatic | Use `/sw:router` |
 | Confidence-based execution | Yes | Manual |
 | Tool restrictions | Yes | No |
 | All commands | Yes (21) | Yes (21 + 3 portable-only) |
 | SlashCommand chaining | Yes | Yes |
-| Namespace | `/specswarm:` | `/sw:` |
+| Namespace | `/ss:` | `/sw:` |
 
 See [LIMITATIONS.md](LIMITATIONS.md) for details.
 

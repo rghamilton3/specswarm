@@ -20,8 +20,8 @@ Complete documentation for the SpecSwarm Claude Code plugin.
 
 1. **Read**: [Main README](../README.md) - Understand what SpecSwarm does
 2. **Install**: Follow the 2-step installation in the README
-3. **Configure**: Run `/specswarm:init` to set up your project
-4. **Build**: Try `/specswarm:build "your first feature"`
+3. **Configure**: Run `/ss:init` to set up your project
+4. **Build**: Try `/ss:build "your first feature"`
 
 ### Looking for Something Specific?
 
@@ -117,34 +117,34 @@ Complete documentation for the SpecSwarm Claude Code plugin.
 ## 🎯 Common Tasks
 
 ### "I want to build a new feature"
-1. Read: [Commands: /specswarm:build](../COMMANDS.md#specswarmcomplete)
-2. Run: `/specswarm:build "feature description"`
+1. Read: [Commands: /ss:build](../COMMANDS.md#specswarmcomplete)
+2. Run: `/ss:build "feature description"`
 3. Or use natural language: "Build user authentication with JWT"
 
 ### "I need to fix a bug"
-1. Read: [Commands: /specswarm:fix](../COMMANDS.md#specswarmfix)
-2. Run: `/specswarm:fix "bug description"`
+1. Read: [Commands: /ss:fix](../COMMANDS.md#specswarmfix)
+2. Run: `/ss:fix "bug description"`
 3. Or use natural language: "Fix the login button on mobile"
 
 ### "I want to change how something works"
-1. Read: [Commands: /specswarm:modify](../COMMANDS.md#specswarmmodify)
-2. Run: `/specswarm:modify "change description"`
+1. Read: [Commands: /ss:modify](../COMMANDS.md#specswarmmodify)
+2. Run: `/ss:modify "change description"`
 3. Or use natural language: "Change authentication from session to JWT"
 
 ### "I'm ready to ship"
-1. Read: [Commands: /specswarm:ship](../COMMANDS.md#specswarmship)
-2. Run: `/specswarm:ship`
+1. Read: [Commands: /ss:ship](../COMMANDS.md#specswarmship)
+2. Run: `/ss:ship`
 3. Or use natural language: "Ship this feature" (will ask for confirmation)
 
 ### "I need to set up SpecSwarm in my project"
 1. Read: [Setup: Configuration](./SETUP.md#configuration)
-2. Run: `/specswarm:init`
+2. Run: `/ss:init`
 3. Follow interactive prompts
 
 ### "Quality validation isn't working"
 1. Read: [Setup: Troubleshooting](./SETUP.md#troubleshooting)
 2. Check: Does `.specswarm/quality-standards.md` exist?
-3. Fix: Run `/specswarm:init` if missing
+3. Fix: Run `/ss:init` if missing
 
 ### "I want to prevent tech stack drift"
 1. Read: [Features: Tech Stack Management](./FEATURES.md#tech-stack-management)
@@ -222,6 +222,6 @@ See [README: Version History](../README.md#version-history) for release notes an
 
 ---
 
-**SpecSwarm v4.0.1** - Documentation index
+**SpecSwarm v6.0.0** - Documentation index
 
 *Navigate confidently through SpecSwarm's comprehensive documentation.*

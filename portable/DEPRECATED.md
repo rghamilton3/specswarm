@@ -20,7 +20,7 @@ Without hooks, the portable version delivers a significantly degraded experience
 claude plugin install specswarm --marketplace https://github.com/MartyBonacci/specswarm
 ```
 
-The plugin version (`/specswarm:*`) includes:
+The plugin version (`/ss:*`) includes:
 - Autonomous multi-phase builds via stop hook
 - Natural language skill routing (no need for `/sw:router`)
 - PostToolUse quality hooks (automatic lint/typecheck)

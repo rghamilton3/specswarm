@@ -1,6 +1,7 @@
 ---
 description: Create or update the feature specification from a natural language feature description.
 hidden: true
+effort: high
 ---
 
 <!--
@@ -98,7 +99,7 @@ Given that feature description, do this:
          echo "❌ Branch setup cancelled"
          echo ""
          echo "Please checkout the correct parent branch first, then run:"
-         echo "  /sw:specify \"$FEATURE_DESCRIPTION\""
+         echo "  /ss:specify \"$FEATURE_DESCRIPTION\""
          exit 0
        fi
        echo ""
@@ -284,7 +285,7 @@ Given that feature description, do this:
    ---
    ```
 
-   This metadata enables the `/sw:complete` command to merge back to the correct parent branch.
+   This metadata enables the `/ss:complete` command to merge back to the correct parent branch.
 
 6. **Specification Quality Validation**: After writing the initial spec, validate it against quality criteria:
 

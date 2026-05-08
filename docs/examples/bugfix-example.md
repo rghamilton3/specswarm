@@ -1,6 +1,6 @@
 # Bugfix Example: Login Timeout Issue
 
-**Real-world walkthrough of using `/specswarm:bugfix` to fix a production bug**
+**Real-world walkthrough of using `/ss:bugfix` to fix a production bug**
 
 ---
 
@@ -35,7 +35,7 @@ Switched to a new branch 'bugfix/042-login-timeout'
 ## Step 2: Run Bugfix Workflow
 
 ```bash
-/specswarm:bugfix
+/ss:bugfix
 ```
 
 **Claude's Response:**
@@ -594,7 +594,7 @@ Duration: 1h 12min
 2. Commit changes: git add . && git commit -m "fix: login timeout issue (bug 042)"
 3. Create PR and deploy
 4. Monitor production metrics
-5. View metrics: /specswarm:workflow-metrics 042
+5. View metrics: /ss:workflow-metrics 042
 ```
 
 ---
@@ -665,7 +665,7 @@ EOF
 
 ```bash
 # View metrics for this bugfix
-/specswarm:workflow-metrics 042
+/ss:workflow-metrics 042
 ```
 
 **Output:**
@@ -788,7 +788,7 @@ Result:
 ### With SpecSwarm Bugfix (Systematic)
 
 ```
-1. /specswarm:bugfix
+1. /ss:bugfix
 2. Claude guides through regression-test-first
 3. Test fails (proves bug exists)
 4. Implement fix
@@ -816,7 +816,7 @@ Result:
 git checkout -b bugfix/NNN-description
 
 # 2. Run workflow
-/specswarm:bugfix
+/ss:bugfix
 
 # 3. Follow Claude's guidance
 

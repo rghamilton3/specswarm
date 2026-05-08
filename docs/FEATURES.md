@@ -128,7 +128,7 @@ Total:             78/100 ❌ FAIL (threshold: 80)
 Action Required:
 - Fix 10% unit test failures
 - Add E2E tests for critical flows
-- Reduce bundle sizes (see /specswarm:analyze-quality)
+- Reduce bundle sizes (see /ss:analyze-quality)
 ```
 
 **Scenario 3: Production Ready (Score: 100)**
@@ -147,13 +147,13 @@ Total:             100/100 ✅ EXCELLENT
 
 | Command | Validation | Scoring | Gates |
 |---------|-----------|---------|-------|
-| `/specswarm:implement` | ✅ Full | ✅ Yes | ✅ Yes |
-| `/specswarm:bugfix` | ✅ Full | ✅ Yes | ✅ Yes |
-| `/specswarm:ship` | ✅ Full | ✅ Yes | ✅ Yes (blocks merge) |
-| `/specswarm:analyze-quality` | ✅ Full | ✅ Yes | ❌ No (report only) |
-| `/specswarm:fix` | ✅ Tests only | ❌ No | ❌ No |
-| `/specswarm:modify` | ✅ Full | ✅ Yes | ✅ Yes |
-| `/specswarm:modify --refactor` | ✅ Full | ✅ Yes | ✅ Yes |
+| `/ss:implement` | ✅ Full | ✅ Yes | ✅ Yes |
+| `/ss:bugfix` | ✅ Full | ✅ Yes | ✅ Yes |
+| `/ss:ship` | ✅ Full | ✅ Yes | ✅ Yes (blocks merge) |
+| `/ss:analyze-quality` | ✅ Full | ✅ Yes | ❌ No (report only) |
+| `/ss:fix` | ✅ Tests only | ❌ No | ❌ No |
+| `/ss:modify` | ✅ Full | ✅ Yes | ✅ Yes |
+| `/ss:modify --refactor` | ✅ Full | ✅ Yes | ✅ Yes |
 
 ---
 
@@ -165,16 +165,16 @@ Prevents technology drift by validating against `.specswarm/tech-stack.md` at mu
 
 ### Validation Phases
 
-**1. Plan Phase (`/specswarm:plan`)**
+**1. Plan Phase (`/ss:plan`)**
 - Checks proposed libraries against approved list
 - Flags prohibited patterns
 - Suggests alternatives
 
-**2. Task Phase (`/specswarm:tasks`)**
+**2. Task Phase (`/ss:tasks`)**
 - Validates task dependencies
 - Ensures tasks use approved tech
 
-**3. Implementation Phase (`/specswarm:implement`)**
+**3. Implementation Phase (`/ss:implement`)**
 - Scans created files for imports
 - Detects prohibited library usage
 - Blocks commit if violations found
@@ -386,7 +386,7 @@ Files:
 
 **Skills vs Commands:**
 - **Skills**: Auto-invoked by Claude based on intent detection
-- **Commands**: Manually invoked with `/specswarm:` prefix
+- **Commands**: Manually invoked with `/ss:` prefix
 
 Both run the same underlying workflows.
 
@@ -397,7 +397,7 @@ SpecSwarm uses keyword matching to route natural language to the right workflow:
 **Clear intent** — routes directly:
 ```
 User: "Build user authentication with JWT"
-→ Routes to /specswarm:build "user authentication with JWT"
+→ Routes to /ss:build "user authentication with JWT"
 ```
 
 **Ambiguous intent** — asks for clarification:
@@ -461,7 +461,7 @@ Autonomous multi-agent workflow execution (experimental).
 
 ### Orchestration Modes
 
-**`/specswarm:build --orchestrate`**
+**`/ss:build --orchestrate`**
 - Multi-agent coordination
 - Autonomous decision-making
 - Continuous validation
@@ -514,4 +514,4 @@ const agents = [
 
 ---
 
-**SpecSwarm v4.0.1** - Features deep-dive
+**SpecSwarm v6.0.0** - Features deep-dive

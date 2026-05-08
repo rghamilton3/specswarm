@@ -1,504 +1,145 @@
-# SpecSwarm v5.2.0
+# SpecSwarm v6.0.0
 
-**Complete Software Development Toolkit**
-
-Build, fix, maintain, and analyze your entire software project with one unified plugin.
+Spec-driven development for Claude Code. Build → Fix → Modify → Ship, with quality gates, multi-agent orchestration, and version-controlled specs.
 
 ---
 
-## Overview
-
-SpecSwarm is a comprehensive Claude Code plugin for the complete software development lifecycle across **any language or framework** Claude supports:
-
-- ✅ **Spec-Driven Development** - Specification to implementation
-- 🐛 **Bug Management** - Systematic fixing with regression testing
-- 🔧 **Code Maintenance** - Refactoring and feature modification
-- 📊 **Quality Assurance** - Automated validation (0-100 scoring)
-- 🗣️ **Natural Language** - Talk to SpecSwarm like a teammate
-- 🔌 **MCP Auto-Detection** - Configures MCP servers for your tech stack
-
-**10 Commands** | **MCP Integration** | **Production Ready**
-
----
-
-## Installation
+## Install
 
 ```bash
 # 1. Add the marketplace
 /plugin marketplace add MartyBonacci/specswarm
 
-# 2. Install the plugin
-/plugin install specswarm@specswarm-marketplace
-
-# 3. (Optional) Install /ss: shortcuts
+# 2. Install SpecSwarm
 /plugin install ss@specswarm-marketplace
 ```
 
-Restart Claude Code to activate the plugin.
+Restart Claude Code to activate the plugin. *(Upgrading from v5.x? See [Migrating from v5.x](#migrating-from-v5x) at the bottom.)*
 
 ---
 
-## Quick Start
+## The 5 commands
 
-### One-Command Workflow
+| Command      | What it does                                                       |
+| ------------ | ------------------------------------------------------------------ |
+| `/ss:init`   | Set up or refresh project knowledge: tech stack, constitution, quality gates |
+| `/ss:build`  | Spec → plan → tasks → implement → quality score                    |
+| `/ss:fix`    | Test-driven bug fix with auto-retry and silent-failure audit       |
+| `/ss:modify` | Behavior change with impact analysis and backward-compat plan      |
+| `/ss:ship`   | Multi-agent review + quality gate + merge to parent branch         |
+
+---
+
+## How to use it
+
+1. Write a clear spec of the feature, sprint, or project that you want.
+2. Run `/ss:init` in your project.
+3. Run `/ss:build "<your feature description referencing your spec document>"`.
+4. Use `/ss:fix "<bug>"` for anything broken, or `/ss:modify "<change>"` for things that work but aren't right. Repeat as needed.
+5. Run `/ss:ship` when everything's good.
+
+That's the loop.
+
+*Re-run `/ss:init` any time the project's tech stack, conventions, or constitution changes — it refreshes SpecSwarm's knowledge of the project.*
+
+---
+
+## Example: a useful `/ss:build` prompt
+
+Most of SpecSwarm's value comes from a clear spec document and a prompt that points to it. Keep the spec in your repo (e.g., `docs/specs/...`); the prompt itself stays short and points SpecSwarm at the spec, optionally with scope or exclusions to keep this build focused.
+
+```
+/ss:build "Implement the email + password authentication feature
+described in docs/specs/auth-v1.md.
+
+Out of scope for this build:
+- OAuth and social sign-in
+- Password reset flow
+- Multi-factor authentication"
+```
+
+The clearer the spec document, the less back-and-forth during clarification.
+
+---
+
+## Inside the 5 commands
+
+A lot happens automatically inside each command. You don't invoke these phases directly — they run as the command needs them. The list below is descriptive, not a control surface; trust the system to sequence them correctly.
+
+### Inside `/ss:init`
+
+1. **Tech stack detection** — parses package.json, requirements.txt, go.mod, etc.
+2. **Constitution creation** — captures project principles and non-negotiable rules
+3. **Tech stack documentation** — locks approved technologies into `.specswarm/tech-stack.md` to prevent drift across builds
+4. **Quality standards** — sets coverage, score, and performance gates
+5. **Convention analysis** — extracts coding patterns from existing code
+6. **MCP discovery & registration** — adds Context7, Playwright, Postgres, etc., based on detected stack
+7. **Project subagent seeding** — generates project-specific implementer agents matched to your stack
+8. **Constitutional warning hooks** — turns mechanically-checkable principles into PostToolUse warnings
+
+### Inside `/ss:build`
+
+1. **Feature branch creation** — branches from your current branch
+2. **Specification generation** — turns your prompt into a structured, version-controlled spec
+3. **Clarification** — asks targeted questions on ambiguous areas (skipped in `--quick` mode)
+4. **Implementation plan** — architecture, file layout, data flow, technology choices
+5. **Task breakdown** — dependency-ordered tasks with parallel-safe markers
+6. **Project subagent refresh** — adds agents for any new recurring task types in this build
+7. **Orchestration analysis** — detects parallelizable task streams and dispatches multiple agents when safe
+8. **Implementation** — executes tasks sequentially or in parallel as appropriate
+9. **Per-task verification** — a verifier subagent confirms each task's acceptance criteria before it's marked complete
+10. **Quality analysis** — proportional 0-100 scoring across unit tests, coverage, integration tests, and browser tests
+
+### Inside `/ss:fix`
+
+1. **Regression test creation** — captures the bug as a failing test
+2. **Root-cause analysis** — investigates the cause, with multi-bug coordination if requested
+3. **Fix implementation** — applies the targeted change
+4. **Test verification** — runs the full test suite
+5. **Silent-failure audit** — scans the diff for swallowed errors, empty catches, and masking fallbacks
+6. **Auto-retry** — retries with additional context if tests still fail (up to retry limit)
+
+### Inside `/ss:modify`
+
+1. **Context discovery** — locates the feature's existing spec, plan, and dependents
+2. **Impact analysis** — finds every file and feature affected by the change
+3. **Change categorization** — breaking, backward-compatible, or phased deprecation
+4. **Migration planning** — designs an optional compatibility layer
+5. **Spec update** — rewrites the spec to reflect the new intended behavior so it stays canonical
+6. **Phased task generation** — validation → compat layer → implementation → testing → migration
+7. **Implementation** — executes the modification
+8. **Regression validation** — confirms existing tests still pass
+
+### Inside `/ss:ship`
+
+1. **Security audit** *(optional with `--security-audit`)* — dependency CVEs, hardcoded secrets, OWASP pattern scan
+2. **Quality analysis** — proportional 0-100 scoring across all test types
+3. **Multi-agent review** — parallel dispatch of code reviewer, silent-failure hunter, type-design analyzer, and comment analyzer
+4. **Quality threshold gate** — configurable, default 80/100
+5. **Merge to parent branch** — clean fast-forward when possible
+6. **Feature branch cleanup** — deletes the merged branch
+
+---
+
+## Going deeper
+
+- **[COMMANDS.md](./COMMANDS.md)** — every command, every flag, every internal detail
+- **[docs/CHEATSHEET.md](./docs/CHEATSHEET.md)** — fast reference card
+- **[docs/WORKFLOW.md](./docs/WORKFLOW.md)** — extended walkthroughs
+- **[docs/FEATURES.md](./docs/FEATURES.md)** — what makes SpecSwarm different
+- **[docs/SETUP.md](./docs/SETUP.md)** — detailed setup guide
+- **[CHANGELOG.md](./CHANGELOG.md)** — version history
+
+---
+
+## Migrating from v5.x
+
+If you have the old `specswarm` plugin installed:
 
 ```bash
-# Initialize your project
-/specswarm:init
+/plugin uninstall specswarm
 ```
 
-**That's it!** Now you can use natural language:
+All commands have moved from `/specswarm:*` to `/ss:*`. Skill IDs renamed from `specswarm-*` to `ss-*`. The `.specswarm/` per-project state directory and the SpecSwarm name are unchanged — only the command prefix moved.
 
-```
-"Build user authentication with JWT"
-"Fix the login button on mobile"
-"Change authentication from session to JWT"
-"Ship this feature"
-```
-
-SpecSwarm automatically runs the right workflow based on your intent.
-
----
-
-## Core Commands
-
-These 5 commands handle the vast majority of daily development work.
-
-### 1. `/specswarm:init`
-
-**Initialize SpecSwarm in your project**
-
-```bash
-/specswarm:init
-```
-
-Creates `.specswarm/` directory with:
-- `tech-stack.md` - Prevent technology drift
-- `quality-standards.md` - Quality gates and budgets
-- `constitution.md` - Project governance
-
-**Use when:** First-time project setup, or to refresh tech-stack and constitution after external changes
-
----
-
-### 2. `/specswarm:build`
-
-**Build new features from specification to implementation**
-
-```bash
-/specswarm:build "feature description"
-```
-
-**Natural language:**
-```
-"Build user authentication with JWT"
-"Create a payment processing system"
-"Add dashboard analytics"
-```
-
-**Complete workflow:**
-1. Creates specification
-2. Asks clarifying questions
-3. Generates implementation plan
-4. Breaks down into tasks
-5. Implements all tasks
-6. Validates quality (0-100 score)
-
-**Quick mode** for small tasks:
-```bash
-/specswarm:build "add loading spinner" --quick
-```
-Skips clarification, auto-generates micro-spec, and executes immediately.
-
-**Use when:** Building any new feature
-
----
-
-### 3. `/specswarm:fix`
-
-**Fix bugs with regression testing and auto-retry**
-
-```bash
-/specswarm:fix "bug description"
-```
-
-**Natural language:**
-```
-"Fix the login button on mobile"
-"Images don't load"
-"Tailwind styles not showing up"
-```
-
-**Complete workflow:**
-1. Creates regression test
-2. Analyzes root cause
-3. Implements fix
-4. Validates with tests
-5. Auto-retries on failure (max 2 attempts)
-
-**Use when:** Fixing any bug or broken functionality
-
----
-
-### 4. `/specswarm:modify`
-
-**Change existing feature behavior with impact analysis**
-
-```bash
-/specswarm:modify "modification description"
-```
-
-**Natural language:**
-```
-"Change authentication from session to JWT"
-"Add pagination to user list API"
-"Update search to use full-text search"
-```
-
-**Complete workflow:**
-1. Analyzes impact on existing code
-2. Identifies breaking changes
-3. Creates migration plan
-4. Updates specification and plan
-5. Implements modifications
-6. Validates against regression tests
-
-**Use when:**
-- Features that work but need to work differently
-- NOT for bugs (use `/specswarm:fix`)
-- NOT for code quality (use `/specswarm:modify "..." --refactor`)
-
----
-
-### 5. `/specswarm:ship`
-
-**Validate quality, merge to parent branch, and complete feature**
-
-```bash
-/specswarm:ship
-```
-
-**Natural language:**
-```
-"Ship this feature"  ⚠️ (requires confirmation)
-"Deploy to production"  ⚠️ (requires confirmation)
-```
-
-**Complete workflow:**
-1. Runs comprehensive quality analysis
-2. Checks quality threshold (default 80%)
-3. Shows merge plan with confirmation
-4. Merges to parent branch
-5. Deletes feature branch
-
-⚠️ **DESTRUCTIVE OPERATION** - Always requires explicit "yes" confirmation
-
-**Use when:**
-- Feature is complete and tested
-- Quality score meets threshold
-- Ready to merge to main/production
-
----
-
-## Natural Language Commands
-
-### Just Talk to SpecSwarm
-
-Instead of memorizing slash commands, describe what you want in plain English:
-
-**Build a Feature:**
-```
-"Build user authentication with JWT"
-"Create a payment processing system"
-```
-
-**Fix a Bug:**
-```
-"Fix the login button"
-"Images don't load"
-"Styles not showing up"
-```
-
-**Modify Existing Features:**
-```
-"Change authentication to use JWT"
-"Add pagination to the API"
-```
-
-**Ship Features:**
-```
-"Ship this feature"  ⚠️ (always requires confirmation)
-"Merge to main"  ⚠️ (always requires confirmation)
-```
-
-### Skill-Based Routing
-
-SpecSwarm uses keyword matching to route natural language to the right workflow:
-
-- **Clear intent** (e.g., "build", "fix", "ship"): Routes directly to the matching command
-- **Ambiguous intent**: Asks for clarification before proceeding
-
-### Safety Features
-
-🛡️ **SHIP Protection:** SHIP commands **ALWAYS** require explicit confirmation — destructive operations are never auto-executed
-
-🎯 **Slash Commands Still Work:** All slash commands work exactly as before
-
----
-
-## Additional Commands
-
-Beyond the 5 core commands, SpecSwarm provides 5 more visible commands for distinct workflows:
-
-| Command | Purpose |
-|---------|---------|
-| `/specswarm:release` | Version bump + changelog + tag + publish |
-| `/specswarm:upgrade` | Dependency/framework upgrades with compatibility analysis |
-| `/specswarm:rollback` | Undo a failed feature safely |
-| `/specswarm:status` | Check background session progress |
-| `/specswarm:metrics` | Feature analytics dashboard (`--export` for CSV) |
-
-### Flags on Core Commands
-
-Many workflows that were previously separate commands are now flags:
-
-| Flag | On Command | Replaces |
-|------|-----------|----------|
-| `--analyze` | `build` | Cross-artifact consistency analysis |
-| `--checklist` | `build` | Requirements validation checklist |
-| `--coordinate` | `fix` | Multi-bug orchestrated debugging |
-| `--refactor` | `modify` | Behavior-preserving quality improvement |
-| `--deprecate` | `modify` | Phased feature sunset |
-| `--analyze-only` | `modify` | Impact analysis without implementation |
-| `--security-audit` | `ship` | Comprehensive security scan before merge |
-
-### Internal Commands
-
-11 commands are available for re-running individual steps but hidden from the main listing:
-
-`specify`, `clarify`, `plan`, `tasks`, `implement`, `validate`, `analyze-quality`, `bugfix`, `hotfix`, `complete`, `constitution`
-
-**See complete documentation:** [COMMANDS.md](./COMMANDS.md)
-
-### `/ss:` Commands
-
-Requires the `ss` plugin: `/plugin install ss@specswarm-marketplace`
-
-> **Migration notice**: `/specswarm:` commands are being migrated to `/ss:` equivalents.
-> Both work identically today. In a future major version, `/ss:` will become the primary plugin.
-
-Every visible command has an `/ss:` equivalent:
-
-| Shortcut | Equivalent |
-|----------|-----------|
-| `/ss:build` | `/specswarm:build` |
-| `/ss:fix` | `/specswarm:fix` |
-| `/ss:modify` | `/specswarm:modify` |
-| `/ss:ship` | `/specswarm:ship` |
-| `/ss:init` | `/specswarm:init` |
-| `/ss:release` | `/specswarm:release` |
-| `/ss:upgrade` | `/specswarm:upgrade` |
-| `/ss:rollback` | `/specswarm:rollback` |
-| `/ss:status` | `/specswarm:status` |
-| `/ss:metrics` | `/specswarm:metrics` |
-
-All flags work identically: `/ss:build "feature" --quick`
-
----
-
-## Key Features
-
-### Quality Validation (0-100 Points)
-
-Automated scoring across 4 dimensions:
-
-- **Unit Tests** (30 pts) - Proportional by pass rate
-- **Code Coverage** (30 pts) - Proportional by coverage %
-- **Integration Tests** (20 pts) - API/service testing
-- **Browser Tests** (20 pts) - E2E user flows
-
-**See details:** [Features: Quality System](./docs/FEATURES.md#quality-validation-system)
-
-### Tech Stack Management
-
-**Drift prevention** through automatic validation:
-
-```markdown
-# .specswarm/tech-stack.md
-## Core Technologies
-- React Router v7
-- PostgreSQL 17.x
-
-## Approved Libraries
-- Zod v4+ (validation)
-
-## Prohibited
-- ❌ Redux (use React Router loaders/actions)
-```
-
-SpecSwarm validates at plan, task, and implementation phases.
-
-**See details:** [Features: Tech Stack](./docs/FEATURES.md#tech-stack-management)
-
-### MCP Server Auto-Detection
-
-`/ss:init` detects your tech stack and configures MCP servers automatically:
-
-- **Context7** — Version-specific docs for all dependencies (prevents outdated API usage)
-- **Supabase/Firebase** — Direct database and auth management
-- **Playwright** — Browser automation for visual validation and E2E testing
-- **GitHub/GitLab** — PR management and issue tracking
-- **Dynamic discovery** — Searches for official MCP servers for any detected dependency
-
-Commands automatically leverage configured MCP servers:
-- `/ss:build` uses Context7 to look up current framework docs before implementing
-- `/ss:fix` uses Context7 for API verification + Playwright for before/after screenshots
-- `/ss:ship` uses Playwright for browser smoke tests before merging
-
-### Language Agnostic
-
-SpecSwarm's core workflow (specify, clarify, plan, tasks, implement, ship) works with **any language or framework** Claude can read. There is no language-specific tooling — Claude handles the code understanding and generation.
-
-The quality analysis step includes test runner detection for common frameworks (Vitest, Jest, Pytest, go test, RSpec, PHPUnit, cargo test, JUnit) as a convenience for automated scoring.
-
----
-
-## Best Practices
-
-1. **Run `/ss:init` first** — Sets up foundation + configures MCP servers
-2. **Define tech-stack.md early** — Prevents technology drift
-3. **Install MCP servers** — Context7 alone prevents most outdated API issues
-4. **Enable quality gates** — Maintain >80% scores
-5. **Run quality analysis before shipping** — Catch issues early
-6. **Use `/ss:` commands** — Shorter, becoming the primary interface
-
----
-
-## Documentation
-
-- **[Commands Reference](./COMMANDS.md)** - All 21 commands documented
-- **[Setup Guide](./docs/SETUP.md)** - Configuration and troubleshooting
-- **[Features Deep-Dive](./docs/FEATURES.md)** - Technical feature details
-- **[Documentation Index](./docs/README.md)** - Navigate all docs
-
----
-
-## Troubleshooting
-
-### Quality Validation Not Running
-
-Create `.specswarm/quality-standards.md` or run `/specswarm:init`
-
-**See more:** [Setup: Troubleshooting](./docs/SETUP.md#troubleshooting)
-
----
-
-## Version History
-
-### v5.2.0 (2026-03-27) - MCP Auto-Detection & /ss: Migration ⭐
-- **New**: `/ss:init` auto-detects tech stack and recommends real MCP servers (Context7, Supabase, Firebase, Playwright, GitHub, etc.)
-- **New**: Hybrid MCP discovery — curated list for common tech + WebSearch for remaining dependencies
-- **New**: Creates/updates `.mcp.json` with user-approved MCP servers
-- **New**: Build, fix, and ship commands leverage MCP servers automatically (context7 docs, playwright screenshots)
-- **Changed**: `/specswarm:` commands show `[migrating to /ss:]` in descriptions — `/ss:` is now the primary interface
-- **Changed**: `/ss:` command descriptions no longer say "(shortcut)" — they're first-class commands
-- **Removed**: Misleading vendor skills placeholder from `/ss:init` (replaced with real MCP detection)
-- **Fixed**: Marketplace descriptor at `.claude-plugin/marketplace.json` (was stuck at v3.7.4)
-- **Impact**: MCP servers provide real-time docs, browser testing, and service integration during development
-
-### v5.1.1 (2026-03-24) - Branch Creation Fix & /ss: Plugin 🔧
-- **Fixed**: `/specswarm:build` not creating feature branches — split pre-flight into 5 focused sections
-- **Fixed**: `/ss:` shortcuts registering as `/specswarm:ss-build` — moved to separate `ss` plugin
-- **Added**: Branch verification gate, separate `ss` plugin for `/ss:` shortcuts
-- **Removed**: Unimplemented placeholder features (SSR validation, bundle size monitoring, chain bug detection)
-- **Impact**: Feature branches now created reliably; `/ss:build` etc. work as intended
-
-### v5.1.0 (2026-03-22) - Audit Fix & Documentation Update 🔧
-- **Fixed**: Hardcoded paths in build.md, validate.md, implement.md that broke for all non-author users
-- **Fixed**: 7 phantom command references pointing to commands removed in v4.0.0
-- **Fixed**: 10 missing lib file sources now wrapped in `if [ -f ]` guards for graceful degradation
-- **Fixed**: All stale "speclabs" references replaced with "specswarm"
-- **Fixed**: Wrong skill/command counts in docs
-- **Added**: Deprecation notice on portable installation
-- **Added**: `/ss:` shortcut aliases for all 10 visible commands
-- **Added**: `--quick` flag on `/specswarm:build` for small tasks
-- **Impact**: Plugin now works correctly for all users, not just the author
-
-### v5.0.0 (2026-03-20) - Effort Frontmatter & 5 New Skills ⭐
-- **New**: 5 natural language skills (status, rollback, release, init, metrics) — 10 total
-- **New**: Effort frontmatter on all 21 commands for smarter resource allocation
-- **New**: Conditional rules for active builds and feature branches
-- **New**: Dynamic context injection in build/fix/ship/status skills
-- **Changed**: Status and metrics commands use lighter model for faster execution
-- **Changed**: Orchestrator agent has guardrails (maxTurns, disallowedTools)
-- **Impact**: Better performance, lower cost, same workflow
-
-### v4.0.1 (2026-02-27) - Documentation & State Management Fix 🔧
-- **Fixed**: Memory/state management flaws in build loop
-- **Fixed**: README documentation discrepancies — honest feature claims, language-agnostic framing
-- **Removed**: Overclaimed metrics ("95% drift prevention", unsubstantiated confidence percentages)
-- **Removed**: Unimplemented feature placeholders (Chain Bug Detection, SSR Validation, Bundle Size Monitoring)
-- **Impact**: README now accurately reflects implemented functionality
-
-**See full history:** [CHANGELOG.md](./CHANGELOG.md)
-
----
-
-## Attribution
-
-### Inspired By
-
-SpecSwarm is inspired by **GitHub's spec-kit** Spec-Driven Development methodology.
-
-**Attribution Chain:**
-
-1. **Original**: [GitHub spec-kit](https://github.com/github/spec-kit)
-   - Copyright (c) GitHub, Inc. | MIT License
-   - Spec-Driven Development methodology
-
-2. **Adapted**: SpecKit plugin by Marty Bonacci (2025)
-   - Claude Code integration
-
-3. **Enhanced**: SpecSwarm v5.0.0 by Marty Bonacci & Claude Code (2025-2026)
-   - Tech stack drift prevention
-   - Lifecycle workflows (build, fix, modify, ship, upgrade)
-   - Quality validation (0-100 scoring)
-   - Natural language commands
-
----
-
-## Portable Installation (Deprecated)
-
-> **Note:** The portable installation is deprecated and no longer maintained. Use the marketplace plugin above.
-
-For legacy per-project installation:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/MartyBonacci/specswarm/main/portable/install.sh | bash
-```
-
-**Important:** Portable version uses a **different command prefix** than the marketplace plugin:
-- **Marketplace plugin:** `/specswarm:build`, `/specswarm:fix`, `/specswarm:ship`
-- **Portable version:** `/sw:build`, `/sw:fix`, `/sw:ship` (shorter prefix)
-
-**See details:** [portable/LIMITATIONS.md](./portable/LIMITATIONS.md)
-
----
-
-## License
-
-MIT License - See LICENSE file for details
-
----
-
-## Support
-
-- **Repository**: https://github.com/MartyBonacci/specswarm
-- **Issues**: https://github.com/MartyBonacci/specswarm/issues
-- **Documentation**: [docs/README.md](./docs/README.md)
-
----
-
-**SpecSwarm v5.2.0** - Your complete software development toolkit. 🚀
-
-Build it. Fix it. Modify it. Ship it. All in one place.
+The deprecated `specswarm` plugin still appears in the marketplace as a stub through v6.x and will be removed entirely in v7.0.0.

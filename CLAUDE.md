@@ -2,15 +2,17 @@
 
 ## Overview
 
-SpecSwarm is a Claude Code plugin providing spec-driven development workflows: Build, Modify, Fix, Ship. It includes 21 commands, 10 `/ss:` shortcut commands (separate plugin), 10 natural language skills, and 2 agents for multi-agent orchestration.
+SpecSwarm is a Claude Code plugin providing spec-driven development workflows: Build, Modify, Fix, Ship. As of v6.0.0, all functionality lives in the `ss` plugin and is invoked via `/ss:*` commands (10 visible + 11 internal/hidden = 21 total). Includes 10 natural-language skills, 2 multi-agent orchestration agents, and the `.specswarm/` per-project state directory (directory name preserves the SpecSwarm brand).
+
+The legacy `specswarm` plugin remains as a deprecation stub (no commands/skills/hooks) so users who installed it see a clear migration message. Slated for full removal in v7.0.0.
 
 ## Development
 
 ### Plugin Validation (required before commits)
 
 ```bash
-claude plugin validate plugins/specswarm/
 claude plugin validate plugins/ss/
+claude plugin validate plugins/specswarm/   # deprecation stub
 ```
 
 Run this after any change to command/skill/agent frontmatter or plugin.json. It catches YAML typos that would silently fail at runtime.
@@ -18,31 +20,32 @@ Run this after any change to command/skill/agent frontmatter or plugin.json. It 
 ### Version Bumping
 
 Three files must be bumped in sync:
-1. `plugins/specswarm/.claude-plugin/plugin.json` — `version`
-2. `plugins/ss/.claude-plugin/plugin.json` — `version`
+1. `plugins/ss/.claude-plugin/plugin.json` — `version`
+2. `plugins/specswarm/.claude-plugin/plugin.json` — `version` (kept in sync even though it's a stub)
 3. `.claude-plugin/marketplace.json` — both `plugins[].version` entries
 
 ### Testing After Changes
 
 1. Restart Claude Code (skill prompts are cached per session)
-2. Run `/skills` to verify all 10 skills appear
-3. Test a low-effort command (`/specswarm:status`) vs high-effort (`/specswarm:build`)
+2. Run `/skills` to verify all 10 `ss-*` skills appear
+3. Test a low-effort command (`/ss:status`) vs high-effort (`/ss:build`)
 
 ## Project Structure
 
 ```
-plugins/specswarm/
-├── commands/        # 21 slash commands (10 visible + 11 internal/hidden)
-├── skills/          # 10 natural language skills (SKILL.md)
-├── agents/          # 2 agents (orchestrator, task-router)
-├── hooks/           # Setup, stop, and PostToolUse quality hooks (bash)
-├── lib/             # Shared shell helpers (incl. audit-logger.sh)
-├── templates/       # Spec/plan/task templates
-└── .claude-plugin/  # Plugin metadata (plugin.json)
-
 plugins/ss/
-├── commands/        # 10 shortcut commands (/ss:build, /ss:ship, etc.)
-└── .claude-plugin/  # Plugin metadata (plugin.json)
+├── commands/        # 21 slash commands (10 visible + 11 internal/hidden)
+├── skills/          # 10 ss-* skills (ss-build, ss-fix, ss-init, ss-metrics, ss-modify, ss-release, ss-rollback, ss-ship, ss-status, ss-upgrade)
+├── agents/          # 2 agents (orchestrator, task-router)
+├── hooks/           # SessionStart orientation, Setup auto-init, PostToolUse (quality + constitution dispatcher), Stop loop control
+├── lib/             # Shared shell helpers (audit-logger, agent-generator, constitution-parser, orchestrator-utils, …)
+├── rules/           # Project-level rule references (specswarm-active-build, specswarm-feature-branch)
+├── templates/       # Spec/plan/task templates, agent template, constitutional-hook templates
+└── .claude-plugin/  # plugin.json (name: "ss", version: "6.0.0")
+
+plugins/specswarm/
+└── .claude-plugin/
+    └── plugin.json  # DEPRECATION STUB — points users to ss@specswarm-marketplace
 ```
 
 ## Recommended Project-Level Rules
@@ -56,3 +59,5 @@ When using SpecSwarm in a project, consider adding these rules to `.claude/rules
 **`.claude/rules/specswarm-feature-branch.md`** (glob: `.specswarm/features/**`):
 - Reference spec.md and plan.md when editing feature files
 - Follow tasks.md task breakdown, mark tasks complete when done
+
+(The rule template files now live in `plugins/ss/rules/` and can be copied into a user repo's `.claude/rules/` to enable.)

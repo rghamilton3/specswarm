@@ -23,12 +23,12 @@ This guide explains when and how to use them together effectively, both now and 
 | Scenario | Use SpecSwarm | Use SpecLabs | Notes |
 |----------|--------------|--------------|-------|
 | New feature development | ✅ Primary | ⚠️ Optional (autonomous execution) | SpecLabs can automate testing |
-| Bug fixing (1-2 bugs) | ✅ `/specswarm:bugfix` | ❌ | Simple sequential fixes |
+| Bug fixing (1-2 bugs) | ✅ `/ss:bugfix` | ❌ | Simple sequential fixes |
 | Bug fixing (3+ bugs) | ⚠️ Each bug individually | ✅ `/speclabs:coordinate` | Systematic multi-bug analysis |
-| Code refactoring | ✅ `/specswarm:refactor` | ❌ | Metrics-driven approach |
-| Feature modification | ✅ `/specswarm:modify` | ❌ | Impact analysis first |
-| Emergency hotfix | ✅ `/specswarm:hotfix` | ❌ | Production-critical |
-| Quality validation | ✅ `/specswarm:analyze-quality` | ❌ | Comprehensive scoring |
+| Code refactoring | ✅ `/ss:refactor` | ❌ | Metrics-driven approach |
+| Feature modification | ✅ `/ss:modify` | ❌ | Impact analysis first |
+| Emergency hotfix | ✅ `/ss:hotfix` | ❌ | Production-critical |
+| Quality validation | ✅ `/ss:analyze-quality` | ❌ | Comprehensive scoring |
 | Autonomous testing | ❌ | ✅ `/speclabs:orchestrate` | Experimental only |
 | Browser validation | ❌ | ✅ `/speclabs:orchestrate-validate` | Playwright automation |
 
@@ -42,17 +42,17 @@ This guide explains when and how to use them together effectively, both now and 
 
 ```bash
 # Phase 1: Specification (SpecSwarm)
-/specswarm:specify "Add user authentication with email/password"
+/ss:specify "Add user authentication with email/password"
 
 # Phase 2: Planning (SpecSwarm)
-/specswarm:plan
+/ss:plan
 
 # Phase 3: Task Breakdown (SpecSwarm)
-/specswarm:tasks
+/ss:tasks
 
 # Phase 4: Implementation (SpecSwarm OR SpecLabs)
 # Option A - Manual implementation (production-ready)
-/specswarm:implement
+/ss:implement
 
 # Option B - Autonomous execution (experimental)
 # Create workflow.md first, then:
@@ -60,7 +60,7 @@ This guide explains when and how to use them together effectively, both now and 
 /speclabs:orchestrate-validate /path/to/project
 
 # Phase 5: Quality Validation (SpecSwarm)
-/specswarm:analyze-quality
+/ss:analyze-quality
 ```
 
 **When to use Option B (SpecLabs autonomous)**:
@@ -90,15 +90,15 @@ This guide explains when and how to use them together effectively, both now and 
 # (Manual - follow logging-strategy.md)
 
 # Step 3: Fix Each Bug (SpecSwarm)
-/specswarm:bugfix "Bug #1: Navbar not updating after sign-in"
-/specswarm:bugfix "Bug #2: Sign-out not working"
-/specswarm:bugfix "Bug #3: Like button causes blank page"
+/ss:bugfix "Bug #1: Navbar not updating after sign-in"
+/ss:bugfix "Bug #2: Sign-out not working"
+/ss:bugfix "Bug #3: Like button causes blank page"
 
 # OR: Use orchestration plan from SpecLabs
 # (Experimental - coordinate multiple agents)
 
 # Step 4: Verification (SpecSwarm)
-/specswarm:analyze-quality
+/ss:analyze-quality
 ```
 
 **Benefits of this pattern**:
@@ -119,11 +119,11 @@ This guide explains when and how to use them together effectively, both now and 
 # Identify what works, what needs refinement
 
 # Production Phase (SpecSwarm - quality focus)
-/specswarm:specify "Feature 1 based on prototype learnings"
-/specswarm:plan
-/specswarm:tasks
-/specswarm:implement
-/specswarm:analyze-quality
+/ss:specify "Feature 1 based on prototype learnings"
+/ss:plan
+/ss:tasks
+/ss:implement
+/ss:analyze-quality
 ```
 
 **Use case**: Validating ideas quickly before committing to full spec-driven development.
@@ -227,7 +227,7 @@ SpecSwarm includes smart integration points that suggest SpecLabs features when 
 **SpecSwarm detects chain bugs during bugfix workflow**
 
 ```bash
-/specswarm:bugfix "Multiple authentication issues"
+/ss:bugfix "Multiple authentication issues"
 
 # SpecSwarm output:
 ✅ Bug analysis complete
@@ -249,7 +249,7 @@ Continue with SpecSwarm bugfix workflow? [y/n]
 **SpecSwarm detects autonomous execution opportunity**
 
 ```bash
-/specswarm:implement
+/ss:implement
 
 # SpecSwarm output during task analysis:
 📋 Analyzing tasks for implementation...
@@ -271,7 +271,7 @@ Proceed with manual implementation? [y/n]
 **SpecSwarm quality validation identifies validation needs**
 
 ```bash
-/specswarm:analyze-quality
+/ss:analyze-quality
 
 # SpecSwarm output:
 ❌ Browser Tests: 0/15 points (no tests found)
@@ -296,12 +296,12 @@ Continue manual browser testing? [y/n]
 **Pure SpecSwarm - No experimental features**
 
 ```bash
-/specswarm:specify "Feature description"
-/specswarm:clarify
-/specswarm:plan
-/specswarm:tasks
-/specswarm:implement
-/specswarm:analyze-quality
+/ss:specify "Feature description"
+/ss:clarify
+/ss:plan
+/ss:tasks
+/ss:implement
+/ss:analyze-quality
 ```
 
 **Timeline**: 45-90 minutes for typical feature
@@ -320,10 +320,10 @@ Continue manual browser testing? [y/n]
 /speclabs:orchestrate-validate /path/to/project
 
 # Production refinement
-/specswarm:specify "Based on prototype..."
-/specswarm:plan
-/specswarm:implement
-/specswarm:analyze-quality
+/ss:specify "Based on prototype..."
+/ss:plan
+/ss:implement
+/ss:analyze-quality
 ```
 
 **Timeline**: 20-30 minutes prototype + 30-45 minutes production
@@ -344,12 +344,12 @@ Continue manual browser testing? [y/n]
 # (Follow logging-strategy.md and analysis-template.md)
 
 # Fix systematically
-/specswarm:bugfix "Issue #1 from analysis"
-/specswarm:bugfix "Issue #2 from analysis"
-/specswarm:bugfix "Issue #3 from analysis"
+/ss:bugfix "Issue #1 from analysis"
+/ss:bugfix "Issue #2 from analysis"
+/ss:bugfix "Issue #3 from analysis"
 
 # Verify
-/specswarm:analyze-quality
+/ss:analyze-quality
 ```
 
 **Timeline**: 2-4 hours for 3-bug scenario
@@ -363,7 +363,7 @@ Continue manual browser testing? [y/n]
 **Pure SpecSwarm - Critical stability needed**
 
 ```bash
-/specswarm:hotfix "Production issue description"
+/ss:hotfix "Production issue description"
 ```
 
 **Timeline**: <2 hours target
@@ -446,7 +446,7 @@ Create `.specswarm/integration-preferences.md`:
 - Use SpecSwarm:hotfix instead
 
 ❌ **Don't skip SpecSwarm validation after SpecLabs**
-- Always run `/specswarm:analyze-quality` after SpecLabs work
+- Always run `/ss:analyze-quality` after SpecLabs work
 - Verify autonomous changes manually
 - Run full test suite
 
@@ -472,9 +472,9 @@ Create `.specswarm/integration-preferences.md`:
 # ❌ Agent encountered blocker
 
 # Resume with SpecSwarm
-/specswarm:specify "Same feature from workflow.md"
-/specswarm:plan
-/specswarm:implement
+/ss:specify "Same feature from workflow.md"
+/ss:plan
+/ss:implement
 ```
 
 **Lesson**: SpecSwarm is the reliable fallback.
@@ -485,7 +485,7 @@ Create `.specswarm/integration-preferences.md`:
 
 ```bash
 # SpecSwarm manual implementation taking too long
-/specswarm:implement
+/ss:implement
 # ⏱️  Estimated 90 minutes for 15 tasks
 
 # Cancel and try SpecLabs (if non-critical)
@@ -494,7 +494,7 @@ Create `.specswarm/integration-preferences.md`:
 # ⏱️  Autonomous execution: 15-20 minutes
 
 # Always validate with SpecSwarm after
-/specswarm:analyze-quality
+/ss:analyze-quality
 ```
 
 **Lesson**: SpecLabs can accelerate non-critical work, but always validate.
@@ -516,12 +516,12 @@ Create `.specswarm/integration-preferences.md`:
 # (Follow SpecLabs templates)
 
 # Fix each bug properly
-/specswarm:bugfix "Navbar not updating (root cause: stale cache)"
-/specswarm:bugfix "Sign-out broken (root cause: session handling)"
-/specswarm:bugfix "Like button blank page (root cause: missing error boundary)"
+/ss:bugfix "Navbar not updating (root cause: stale cache)"
+/ss:bugfix "Sign-out broken (root cause: session handling)"
+/ss:bugfix "Like button blank page (root cause: missing error boundary)"
 
 # Final validation
-/specswarm:analyze-quality
+/ss:analyze-quality
 ```
 
 **Lesson**: SpecLabs provides structure, SpecSwarm provides stability.
@@ -585,7 +585,7 @@ As SpecLabs features mature through phases, they may eventually graduate to Spec
 ### Graduation to SpecSwarm (Post-Launch)
 **When features proven stable** (>90% success rate, low bug count, real-world validation):
 - Mature commands may graduate to SpecSwarm
-- Example: `/specswarm:implement --autonomous` (from orchestrate-feature)
+- Example: `/ss:implement --autonomous` (from orchestrate-feature)
 - SpecLabs continues experimental innovation
 - Cycle repeats with next generation features
 
