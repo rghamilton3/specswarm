@@ -134,9 +134,10 @@ A lot happens automatically inside each command. You don't invoke these phases d
 
 ## Migrating from v5.x
 
-If you have the old `specswarm` plugin installed:
+If you have the old `specswarm` plugin installed, install the canonical `ss` plugin first, then uninstall the old one:
 
 ```bash
+/plugin install ss@specswarm-marketplace
 /plugin uninstall specswarm
 ```
 
