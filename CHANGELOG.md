@@ -5,6 +5,38 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.3.0] - 2026-05-08 - Invisible Magic Upgrades
+
+Six high-leverage behaviors added invisibly inside the existing 5 commands. **No new commands. No new flags users must learn.** Same 5-command UX (`init`, `build`, `fix`, `modify`, `ship`), smarter behavior.
+
+### Added
+- **SessionStart orientation hook** — every Claude session opened in a SpecSwarm-managed repo immediately surfaces the active feature, current phase, and last completed task as a one-line context primer. Silent on non-SpecSwarm repos.
+- **Per-task verifier in `/ss:build`** — after each task implementation, a lightweight verifier subagent confirms the code matches the task's acceptance criteria before the task is marked `[x]`. Reduces "Claude said done but it isn't" failures. 30s cap; timeouts treated as pass.
+- **silent-failure-hunter auto-dispatch in `/ss:fix`** — after every successful fix, automatically runs the silent-failure-hunter agent on the diff to catch swallowed errors, empty catches, and fallbacks that mask real bugs. Graceful degrade if `pr-review-toolkit` isn't installed.
+- **Multi-agent review gate in `/ss:ship`** — pre-merge parallel dispatch of code-reviewer, silent-failure-hunter, type-design-analyzer, and comment-analyzer. Aggregates findings; only true BLOCKER findings ask for confirmation. 60s hard cap.
+- **Project subagent generation** — `/ss:init` and `/ss:build` analyze the tech stack and tasks.md to auto-generate `.claude/agents/ss-*.md` agent definitions. The orchestrator routes matching tasks to these project-specific agents. Idempotent — never overwrites user edits.
+- **Constitution-derived warning hooks** — opt-in: constitution authors add structured `<!-- specswarm-rule: ... -->` blocks beneath principles; `/ss:init` and `/specswarm:constitution` generate `.specswarm/hooks/generated/*.sh` PostToolUse hooks that emit warnings (never block) when edits violate a principle. Three rule types supported: `no-pattern`, `required-pattern`, `required-pair`.
+
+### Changed
+- `plugins/specswarm/hooks/hooks.json` now registers SessionStart and a second PostToolUse entry (constitution-dispatcher) alongside the existing quality-check hook.
+- `plugins/specswarm/lib/audit-logger.sh` documents 7 new event types: `task_verified`, `task_verification_failed`, `silent_failure_audit_warning`, `multi_agent_review`, `constitutional_warning`, `principle_unhandled`, `agent_generated`.
+- `plugins/specswarm/lib/orchestrator-utils.sh::route_task_to_agent` now consults the generated-agent manifest (`.specswarm/agents/manifest.json`) before falling back to keyword routing.
+
+### New Files
+- `plugins/specswarm/hooks/orientation-hook.sh`
+- `plugins/specswarm/hooks/constitution-dispatcher.sh`
+- `plugins/specswarm/lib/agent-generator.sh`
+- `plugins/specswarm/lib/constitution-parser.sh`
+- `plugins/specswarm/templates/agents/ss-implementer.md.template`
+- `plugins/specswarm/templates/constitutional-hooks/no-pattern-in-paths.sh.template`
+- `plugins/specswarm/templates/constitutional-hooks/required-import-in-files.sh.template`
+- `plugins/specswarm/templates/constitutional-hooks/required-pair-in-additions.sh.template`
+
+### Design Notes
+- All 4 gates (verifier, silent-failure audit, multi-agent review, constitutional hooks) have hard time caps and graceful degradation. None can stall a build indefinitely or break when third-party plugins are missing.
+- Constitutional hooks are **warning-only on first ship** — easy off-switch (delete the generated file). Future iterations may add silent suppression of repeated false positives.
+- Generated agent files use the `ss-` prefix for clear ownership. They're tracked in git (so they version with the project) and are safe for users to hand-edit.
+
 ## [5.2.0] - 2026-03-27 - MCP Auto-Detection & /ss: Migration
 
 ### Added

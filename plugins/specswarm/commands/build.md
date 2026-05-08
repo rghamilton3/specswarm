@@ -645,6 +645,25 @@ echo "✅ Task breakdown created ($TASK_COUNT tasks)"
 echo ""
 ```
 
+<!-- ========== PROJECT SUBAGENT REFRESH (SpecSwarm 5.3.0) ========== -->
+<!-- Added by Marty Bonacci & Claude Code (2026) — invisible scaffolding -->
+
+**Refresh project subagents** based on the new tasks.md. Idempotent — only adds agents for newly-detected recurring task types; never overwrites existing files.
+
+```bash
+SPECSWARM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -f "$SPECSWARM_DIR/lib/agent-generator.sh" ]; then
+  # Discover the feature directory (same lookup pattern used elsewhere in build.md)
+  FEATURE_DIR=$(find features/ .specswarm/features/ -maxdepth 2 -type d -name "[0-9][0-9][0-9]-*" 2>/dev/null | head -1)
+  source "$SPECSWARM_DIR/lib/agent-generator.sh"
+  generate_project_agents "$REPO_ROOT" "$FEATURE_DIR"
+fi
+```
+
+The function reads tasks.md to find any task types that occur 3+ times and creates a matching agent definition under `.claude/agents/ss-<slug>.md`. Existing agent files are preserved (user edits are safe).
+
+<!-- ========== END PROJECT SUBAGENT REFRESH ========== -->
+
 ---
 
 ### Step 5.5: Cross-Artifact Analysis (Optional)

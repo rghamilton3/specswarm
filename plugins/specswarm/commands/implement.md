@@ -343,7 +343,74 @@ You **MUST** consider the user input before proceeding (if not empty).
    - For parallel tasks [P], continue with successful tasks, report failed ones
    - Provide clear error messages with context for debugging
    - Suggest next steps if implementation cannot proceed
-   - **IMPORTANT** For completed tasks, make sure to mark the task off as [X] in the tasks file.
+   - **IMPORTANT** For completed tasks, run the per-task verifier (step 8b) BEFORE marking the task off as [X] in the tasks file.
+
+<!-- ========== PER-TASK VERIFIER (SpecSwarm 5.3.0) ========== -->
+<!-- Added by Marty Bonacci & Claude Code (2026) — invisible quality gate -->
+
+8b. **Per-Task Verification** (runs after each task's implementation, before marking it [X]):
+
+   **Purpose**: A lightweight verifier subagent confirms the implementation matches the task's acceptance criteria before the task is marked complete. Reduces "Claude said done but it isn't" — a frequent failure mode.
+
+   **YOU MUST run this verification for every task that produced file changes** (skip for purely-organizational tasks like "create directory"):
+
+   1. **Capture the task's diff** using Bash:
+      ```bash
+      # Diff since the task started (use last commit or staged changes)
+      git diff HEAD --stat 2>/dev/null
+      git diff HEAD 2>/dev/null | head -200
+      ```
+      If no changes detected, skip verification for this task and proceed to mark complete.
+
+   2. **Extract task description and acceptance criteria** from `${FEATURE_DIR}/tasks.md`:
+      - Task title (the line containing the task ID)
+      - Any indented bullet points beneath it that describe acceptance criteria, expected behavior, or "must" statements
+
+   3. **Dispatch a verifier subagent** using the Task tool with these parameters:
+      - `subagent_type`: `general-purpose`
+      - `description`: `Verify task <ID>` (3-5 words)
+      - `prompt`: A focused brief containing:
+        ```
+        Verify whether this implementation satisfies the task's acceptance criteria.
+
+        TASK: <task title and ID from tasks.md>
+        ACCEPTANCE CRITERIA: <bullets from tasks.md, or task description if none>
+        DIFF: <output from `git diff HEAD` for this task's file changes>
+
+        Read the affected files if you need additional context. DO NOT make any changes.
+
+        Respond with EXACTLY one of:
+        - VERIFIED: <one-line summary of why it passes>
+        - INCOMPLETE: <what is missing>
+        - INCORRECT: <what is wrong>
+
+        Keep your response under 100 words.
+        ```
+
+   4. **Hard cap**: 30 seconds per task verification. If the agent takes longer or returns no parseable result, treat as `VERIFIED` (do not block the build) and log a `task_verification_timeout` audit event.
+
+   5. **Parse the response** and act:
+      - **VERIFIED** → mark the task `[X]` in tasks.md; log audit event:
+        ```bash
+        source "$PLUGIN_DIR/lib/audit-logger.sh"
+        audit_log "task_verified" feature="$FEATURE_NUM" task_id="<ID>"
+        ```
+      - **INCOMPLETE** or **INCORRECT** → leave the task unchecked, surface the verifier's reason inline to the user, log:
+        ```bash
+        audit_log "task_verification_failed" feature="$FEATURE_NUM" task_id="<ID>" reason="<truncated reason>"
+        ```
+        The build-loop's existing retry mechanism will pick the task up on the next pass.
+
+   6. **Sequential vs orchestrated mode**: Run verification in both modes:
+      - Sequential: verify after each task before moving to the next.
+      - Orchestrated (parallel streams): verify each task as its agent completes; can run verifications in parallel since they're read-only.
+
+   **Important**:
+   - The verifier reads files but never edits — it has no ability to introduce changes.
+   - Verifier failures are NOT errors; they're signals to retry. The build does not halt on verification failure unless the same task fails verification 3 times in a row (then surface to user).
+   - Skip verification only for tasks that produce no file changes (e.g., "verify project structure", "review documentation").
+
+<!-- ========== END PER-TASK VERIFIER ========== -->
 
 9. Completion validation:
    - Verify all required tasks are completed

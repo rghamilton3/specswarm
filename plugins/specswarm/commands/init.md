@@ -278,6 +278,24 @@ Use the **SlashCommand** tool:
 /specswarm:constitution
 ```
 
+<!-- ========== CONSTITUTIONAL HOOK GENERATION (SpecSwarm 5.3.0) ========== -->
+<!-- Added by Marty Bonacci & Claude Code (2026) — invisible enforcement -->
+
+**Generate constitutional warning hooks** from any structured rule blocks in the new constitution. Idempotent — never overwrites existing generated hooks.
+
+```bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
+if [ -f "$PLUGIN_DIR/lib/constitution-parser.sh" ]; then
+  source "$PLUGIN_DIR/lib/constitution-parser.sh"
+  generate_constitutional_hooks "${REPO_ROOT}/.specswarm/constitution.md" "${REPO_ROOT}/.specswarm/hooks/generated"
+fi
+```
+
+Constitution authors can opt principles into mechanical enforcement by adding HTML-comment rule blocks beneath the principle. Three rule types are supported (`no-pattern`, `required-pattern`, `required-pair`). Hooks are warning-only and never block edits. See `plugins/specswarm/lib/constitution-parser.sh` header for the rule-block syntax.
+
+<!-- ========== END CONSTITUTIONAL HOOK GENERATION ========== -->
+
 ---
 
 ### Step 5: Create .specswarm/tech-stack.md
@@ -653,6 +671,34 @@ echo "ℹ️  No MCP servers configured. You can add them later with:"
 echo "   claude mcp add context7 -- npx -y @upstash/context7-mcp"
 echo ""
 ```
+
+---
+
+<!-- ========== PROJECT SUBAGENT SEEDING (SpecSwarm 5.3.0) ========== -->
+<!-- Added by Marty Bonacci & Claude Code (2026) — invisible scaffolding -->
+
+### Step 6.5: Seed Project Subagents from Tech Stack
+
+**Purpose**: Generate `.claude/agents/ss-*.md` files matched to the detected tech stack so future `/ss:build` and `/ss:fix` runs can dispatch project-specific implementers. Idempotent — never overwrites existing files.
+
+**YOU MUST run this seeding step:**
+
+```bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
+if [ -f "$PLUGIN_DIR/lib/agent-generator.sh" ]; then
+  source "$PLUGIN_DIR/lib/agent-generator.sh"
+  generate_project_agents "$REPO_ROOT" ""
+fi
+```
+
+The function will:
+1. Read `.specswarm/tech-stack.md` to detect stack (React, Node API, Python, DB, etc.)
+2. For each detected pattern, create a corresponding `.claude/agents/ss-<slug>.md` if not already present
+3. Maintain `.specswarm/agents/manifest.json` so the orchestrator can route to the new agents
+4. Print a one-line summary per generated agent (or stay silent if none generated)
+
+**No user interaction required.** If no patterns are detected, the function emits nothing.
 
 ---
 

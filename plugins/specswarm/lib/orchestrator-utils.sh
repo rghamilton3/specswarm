@@ -97,6 +97,23 @@ route_task_to_agent() {
   local task_content="$1"
   local content_lower=$(echo "$task_content" | tr '[:upper:]' '[:lower:]')
 
+  # SpecSwarm 5.3.0: Consult generated project agents first.
+  # If a project-specific subagent matches this task's trigger, prefer it over keyword fallback.
+  local __ss_lib_dir
+  __ss_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [ -f "$__ss_lib_dir/agent-generator.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$__ss_lib_dir/agent-generator.sh"
+    if declare -f lookup_generated_agent >/dev/null 2>&1; then
+      local __ss_agent
+      __ss_agent=$(lookup_generated_agent "$task_content" 2>/dev/null || echo "")
+      if [ -n "$__ss_agent" ]; then
+        echo "$__ss_agent"
+        return
+      fi
+    fi
+  fi
+
   # Check for architecture keywords (highest priority)
   if echo "$content_lower" | grep -qE 'architecture|schema|database|api design|endpoint design|migration|erd|system design'; then
     echo "system-architect"

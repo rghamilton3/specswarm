@@ -1,5 +1,5 @@
 {
-  "description": "SpecSwarm hooks for continuous build execution, auto-initialization, and quality enforcement",
+  "description": "SpecSwarm hooks for continuous build execution, auto-initialization, orientation, constitutional enforcement, and quality checking",
   "hooks": {
     "Setup": [
       {
@@ -11,6 +11,16 @@
         ]
       }
     ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/orientation-hook.sh"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|MultiEdit|Write",
@@ -18,6 +28,10 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/quality-check.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/constitution-dispatcher.sh"
           }
         ]
       }

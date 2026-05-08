@@ -79,6 +79,22 @@ Follow this execution flow:
    - Any files flagged for manual follow-up.
    - Suggested commit message (e.g., `docs: amend constitution to vX.Y.Z (principle additions + governance update)`).
 
+9. **Regenerate constitutional warning hooks** (SpecSwarm 5.3.0):
+
+   After writing the updated constitution, refresh any structured rule blocks into runtime hooks. Idempotent — never overwrites existing generated hook files (so users can hand-tune them):
+
+   ```bash
+   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+   PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
+   REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+   if [ -f "$PLUGIN_DIR/lib/constitution-parser.sh" ]; then
+     source "$PLUGIN_DIR/lib/constitution-parser.sh"
+     generate_constitutional_hooks "${REPO_ROOT}/.specswarm/constitution.md" "${REPO_ROOT}/.specswarm/hooks/generated"
+   fi
+   ```
+
+   This silently no-ops if the constitution contains no `<!-- specswarm-rule: ... -->` blocks. New blocks become new warning hooks. Existing generated hooks are preserved (delete the file under `.specswarm/hooks/generated/` to remove a stale warning).
+
 Formatting & Style Requirements:
 - Use Markdown headings exactly as in the template (do not demote/promote levels).
 - Wrap long rationale lines to keep readability (<100 chars ideally) but do not hard enforce with awkward breaks.

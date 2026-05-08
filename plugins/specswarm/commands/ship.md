@@ -185,6 +185,79 @@ Store the quality score as QUALITY_SCORE.
 
 ---
 
+<!-- ========== MULTI-AGENT REVIEW PIPELINE (SpecSwarm 5.3.0) ========== -->
+<!-- Added by Marty Bonacci & Claude Code (2026) — invisible quality gate -->
+
+### Step 2.5: Multi-Agent Review Pipeline
+
+**Purpose**: Pre-merge parallel review by specialized agents (silent-failure-hunter, code-reviewer, type-design-analyzer, comment-analyzer). Catches issues the single-pass quality score misses. Runs only if `pr-review-toolkit` is installed; degrades gracefully otherwise.
+
+**YOU MUST run this review when QUALITY_SCORE is computed and BEFORE the threshold check:**
+
+1. **Determine which review agents are available** by checking for `pr-review-toolkit:*` subagents. Build a list of available reviewers from this set:
+   - `pr-review-toolkit:silent-failure-hunter`
+   - `pr-review-toolkit:code-reviewer`
+   - `pr-review-toolkit:type-design-analyzer`
+   - `pr-review-toolkit:comment-analyzer`
+
+   If **none are available**, log skip and proceed to Step 3 (existing quality threshold check is sufficient):
+   ```bash
+   source "$PLUGIN_DIR/lib/audit-logger.sh"
+   audit_log "multi_agent_review" feature="$FEATURE_NUM" status="skipped" reason="no_agents_available"
+   ```
+   Skip the rest of this step.
+
+2. **Compute the merge diff** using Bash:
+   ```bash
+   PARENT_BRANCH=$(jq -r '.parent_branch // "main"' .specswarm/build-loop.state 2>/dev/null || echo "main")
+   git fetch origin "$PARENT_BRANCH" 2>/dev/null || true
+   MERGE_DIFF_FILES=$(git diff --name-only "${PARENT_BRANCH}"...HEAD 2>/dev/null || echo "")
+   ```
+
+3. **Locate spec.md and plan.md** for context (already known via FEATURE_DIR/build state).
+
+4. **Dispatch all available agents IN PARALLEL** via the Task tool. Send a single message with multiple Task tool calls — one per available agent. Each call gets:
+   - `subagent_type`: the agent name (e.g., `pr-review-toolkit:silent-failure-hunter`)
+   - `description`: 3-5 word description (e.g., `Pre-merge code review`)
+   - `prompt`: A focused brief tailored to that agent's specialty, including:
+     - The merge diff (`git diff ${PARENT_BRANCH}...HEAD`) — truncate to first 1000 lines if huge
+     - The path to `spec.md` and `plan.md` for authoritative context
+     - Instruction to report findings as JSON-ish lines: `[SEVERITY] file:line — description` where severity is `BLOCKER|HIGH|MEDIUM|LOW`
+     - Instruction to keep total response under 400 words
+
+5. **Hard cap: 60 seconds total** for the parallel review block. If any agent has not returned by then, mark its result as "timed out" and proceed without it. Log:
+   ```bash
+   audit_log "multi_agent_review" feature="$FEATURE_NUM" status="partial_timeout" timed_out="<count>"
+   ```
+   Timeouts never block the merge.
+
+6. **Aggregate findings** from all returned agents. Categorize by severity:
+   - **BLOCKER** findings → display them clearly to the user, ask once: `Continue with merge despite blockers? (yes/no)`. If user declines, exit without merging. Audit log:
+     ```bash
+     audit_log "multi_agent_review" feature="$FEATURE_NUM" status="blocked_user_review" blocker_count="$N"
+     ```
+   - **HIGH/MEDIUM/LOW** findings → display as warnings inline; do not block. Audit log status="warnings_surfaced".
+   - **No findings** → display a single line: `🤝 Multi-agent review: clean (<N> agents).` Audit log status="clean".
+
+7. **Display format** for findings (regardless of decision):
+   ```
+   🤝 Multi-Agent Review (parent: <PARENT_BRANCH>)
+   ===============================================
+   Agents run: silent-failure-hunter, code-reviewer, type-design-analyzer
+   Duration:   <seconds>s
+
+   <findings grouped by severity, BLOCKER first>
+   ```
+
+**Important**:
+- Never block on agent dispatch errors or timeouts; only block on confirmed BLOCKER findings, and only after user confirmation.
+- The existing quality threshold check (Step 3) still runs after this, so this is purely additive.
+- Always log a `multi_agent_review` audit event so users can later audit which finds were surfaced.
+
+<!-- ========== END MULTI-AGENT REVIEW PIPELINE ========== -->
+
+---
+
 ### Step 3: Check Quality Threshold
 
 **YOU MUST NOW check if quality meets threshold:**

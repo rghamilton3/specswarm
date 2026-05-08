@@ -486,6 +486,84 @@ fi
 
 ---
 
+<!-- ========== SILENT FAILURE AUDIT (SpecSwarm 5.3.0) ========== -->
+<!-- Added by Marty Bonacci & Claude Code (2026) — invisible quality gate -->
+
+### Step 4.5: Phase 3.5 - Silent Failure Audit (only when FIX_SUCCESSFUL=true)
+
+**Purpose**: Catch the common failure mode where a "fix" silently swallows the underlying error (try/catch with empty handler, fallback that masks the real problem, removed assertion that hid a bug). Auto-runs after every successful fix.
+
+**SKIP this step entirely if FIX_SUCCESSFUL=false** — we don't audit failed fixes.
+
+**YOU MUST run this audit when FIX_SUCCESSFUL=true:**
+
+1. **Detect availability** of the `pr-review-toolkit:silent-failure-hunter` agent. If it's not available (plugin not installed), log and continue silently:
+   ```bash
+   source "$PLUGIN_DIR/lib/audit-logger.sh"
+   # If we cannot dispatch the agent, log skip and continue:
+   audit_log "silent_failure_audit_skipped" feature="$FEATURE_NUM" reason="agent_unavailable"
+   ```
+   Skip the rest of this step.
+
+2. **Compute changed files since fix started** using Bash:
+   ```bash
+   # Files changed in the fix (against previous commit on this branch, fall back to working tree if no commit yet)
+   CHANGED_FILES=$(git diff --name-only HEAD~1..HEAD 2>/dev/null || git diff --name-only HEAD 2>/dev/null || echo "")
+   ```
+   If CHANGED_FILES is empty, log `silent_failure_audit_skipped` reason="no_changes" and skip.
+
+3. **Dispatch silent-failure-hunter** via the Task tool with these parameters:
+   - `subagent_type`: `pr-review-toolkit:silent-failure-hunter`
+   - `description`: `Silent failure audit on fix`
+   - `prompt`: A focused brief containing:
+     ```
+     Review the following diff for silent failures and inadequate error handling.
+
+     CONTEXT: A fix was just applied for: $BUG_DESC
+     CHANGED FILES: <list of changed files>
+     DIFF: <output of git diff HEAD~1..HEAD or HEAD>
+
+     Focus on:
+     - Empty or overly-broad catch blocks
+     - Fallback values that mask real failures
+     - Removed assertions or validation
+     - try/catch that swallows the original bug
+
+     Report only HIGH-CONFIDENCE findings. Format each as:
+     [SEVERITY] file:line — description
+     where SEVERITY is one of: HIGH, MEDIUM, LOW.
+
+     If no concerns, respond exactly: "No silent failures detected."
+     ```
+
+4. **Hard cap**: 45 seconds. If the agent takes longer or returns no parseable result, log `silent_failure_audit_timeout` and continue (do not block).
+
+5. **Parse findings**:
+   - **HIGH severity findings** → surface to user inline as a clear warning block. Do NOT change FIX_SUCCESSFUL — the fix still passed tests; this is informational. Audit log:
+     ```bash
+     audit_log "silent_failure_audit_warning" feature="$FEATURE_NUM" severity="high" findings_count="$N"
+     ```
+     Display:
+     ```
+     ⚠️  Silent Failure Audit
+     ========================
+     The fix passed tests, but the silent-failure-hunter found potential issues:
+        <findings list>
+
+     These warnings are advisory — the fix is not blocked. Review and address if relevant.
+     ```
+   - **MEDIUM/LOW only** → display inline but do not block; audit log severity="medium" or "low".
+   - **No findings** → audit log with severity="none"; no user output beyond a single tidy line: `🔍 Silent-failure audit: clean.`
+
+**Important**:
+- This step never reverses a successful fix or sets FIX_SUCCESSFUL=false.
+- It never asks the user to confirm anything; warnings are advisory.
+- Graceful degradation: if pr-review-toolkit isn't installed, the fix workflow proceeds unchanged.
+
+<!-- ========== END SILENT FAILURE AUDIT ========== -->
+
+---
+
 ### Step 5: Phase 4 - Retry Logic (If Needed)
 
 **IF fix failed and retries remaining:**

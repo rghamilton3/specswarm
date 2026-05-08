@@ -2,6 +2,19 @@
 # SpecSwarm Audit Logger
 # Writes structured events to .specswarm/audit.jsonl
 # Used by build, fix, modify, ship workflows for metrics
+#
+# Event catalog (additive — any caller may emit any event_type):
+#   Workflow:      phase_start, phase_complete, phase_failed,
+#                  build_start, build_complete,
+#                  fix_start, fix_complete, fix_failed,
+#                  ship_start, ship_complete, ship_failed,
+#                  quality_check
+#   Verification:  task_verified, task_verification_failed       (per-task verifier in /ss:build)
+#   Review gates:  silent_failure_audit_warning,                  (silent-failure-hunter in /ss:fix)
+#                  silent_failure_audit_skipped,
+#                  multi_agent_review                              (review pipeline in /ss:ship)
+#   Generation:    agent_generated                                 (project subagent generation)
+#   Constitution:  constitutional_warning, principle_unhandled    (constitution-derived hooks)
 
 # Log an audit event to .specswarm/audit.jsonl
 # Usage: audit_log <event_type> [key=value ...]
