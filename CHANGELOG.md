@@ -5,7 +5,41 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [6.2.0] - 2026-05-08 - Memory-Driven Principle Import
+## [6.3.0] - 2026-05-10 - Constitution Severity Levels
+
+**Constitutional principles can now block, not just warn.** Each rule block in `constitution.md` accepts an optional `severity: warn | block` field (default `warn`, fully backward-compatible). When a `severity: block` rule fires, the PostToolUse dispatcher returns `{decision: "block", reason: ...}` instead of `{decision: "approve", systemMessage: ...}` — Claude is told the action was wrong and provides reverting/fixing feedback rather than just being informed. This closes the gap that v6.2.0's memory-driven principles left open: the canonical motivating example ("trade-secret math must NEVER reach the frontend") needs to *stop* a violation, not just narrate it.
+
+### Added
+
+- **`severity:` field on rule blocks** — accepts `warn` or `block`. Unknown values fall back to `warn` silently (so no constitution.md typo breaks deploys).
+- **`🚫` block prefix on hook output** — generated hooks emit `🚫 Constitutional VIOLATION (block):` instead of `⚠️  Constitutional warning:` when severity=block. Dispatcher detects the prefix and routes accordingly.
+- **`/ss:init` Step 4.5 severity heuristic** — when proposing a principle from memory, the gravity signals `must NEVER`, `trade secret`, `compliance`, `audit`, `leak`, `pii`, `secret`, `forbidden`, `unrecoverable` propose `severity: block` automatically. Per-principle AskUserQuestion gains a "flip severity" option in case the heuristic mis-classified.
+- **Audit log includes severity** — `constitutional_hook_generated` and `constitutional_violations` events now carry the severity field, enabling post-hoc analysis of block-vs-warn rates.
+
+### Fixed
+
+- **Path-glob normalization in generated hooks** — pre-existing v5.3.0 bug surfaced during smoke-testing: hook templates checked the path-glob against the raw FILE_PATH, but the dispatcher prepends REPO_ROOT to make the path absolute. Result: no relative-form glob (`src/**/*.ts`, `app/components/**`, etc.) ever matched in production, so no warning ever fired for any user who followed the documented schema. Templates now compute `REL_PATH = FILE_PATH minus REPO_ROOT/` and match the glob against REL_PATH. **Effect: existing v5.3+ warn rules that were silently inert will start firing after the next `/ss:init` regenerates their hook files.**
+- **`/ss:init` Step 4.5 examples corrected** — v6.2.0 shipped example rule blocks using `<!-- specswarm:rule type=no-pattern-in-paths -->` syntax that the parser does not accept (parser expects `<!-- specswarm-rule: no-pattern -->`). Any memory-imported principle drafted from those examples would have been logged as `principle_unhandled` and silently dropped. Examples now use the parser-accepted form with correct field names (`bad-pattern` not `forbidden-pattern`, mandatory `summary`, etc.).
+
+### Backward compatibility
+
+When `severity:` is omitted, hooks behave exactly as v6.2.0 (modulo the path-glob fix, which makes them *more* effective, not less). Existing generated hook files are preserved — to pick up severity changes or the path-glob fix, delete the relevant file under `.specswarm/hooks/generated/` and re-run `/ss:init` or the generator function.
+
+### Smoke-tested
+
+- Synthetic constitution.md with warn + block + bogus-severity rules → all three classified correctly (bogus → warn)
+- Generated block hook against violation file → emits `🚫` prefix, exit 0
+- Dispatcher with mixed warn+block hook outputs → emits `{decision: "block", reason: <blocks+warnings>}` when any block, `{decision: "approve", systemMessage: ...}` when warns-only, silent approve when clean
+- Both relative-path (`src/foo.ts`) and absolute-path (`/abs/.../src/foo.ts`) FILE_PATH inputs match repo-relative globs identically
+
+### Why this is a minor (6.2.0 → 6.3.0) release
+
+- New `severity:` field is OPTIONAL — every existing rule block without it generates the same warn-only hook as before
+- Hook output format gains a `🚫` prefix as an additive marker; the existing `⚠️ ` prefix is unchanged
+- Dispatcher gains a new decision route (`block`) but the existing `approve` and `approve+systemMessage` routes are byte-identical to v6.2.0 for warn-only fixtures
+- The path-glob fix is technically a behavior change (rules start firing that didn't before), but the prior behavior was a bug, not a contract
+
+## [6.2.0] - 2026-05-10 - Memory-Driven Principle Import
 
 **SpecSwarm can now translate Claude Code memory files into constitution principles.** When the user populates memory directories in `.specswarm/references.md` (the v6.1.0 feature), `/ss:init` adds a new Step 4.5 that scans those memory dirs, identifies opinionated rules ("must NEVER", "always", "required to"), drafts them in the constitutional-hook format, and asks the user to accept or reject each proposal. Accepted principles are appended to constitution.md and trigger automatic regeneration of the PostToolUse warning hooks.
 
@@ -43,7 +77,7 @@ When `.specswarm/references.md` has no memory directories declared (or doesn't e
 - Memory-scanning functions guard on `ss_references_exist` before doing work
 - Existing v6.0.0 / v6.1.0 init runs continue to work without modification
 
-## [6.1.0] - 2026-05-08 - External Reference Corpus
+## [6.1.0] - 2026-05-10 - External Reference Corpus
 
 **SpecSwarm now consults external authoritative sources before fabricating spec content.** Projects with existing PRDs, design docs, decision logs, legacy/prototype reference codebases, or Claude Code memory directories can declare them in `.specswarm/references.md` and SpecSwarm will read those sources during `/ss:specify` (extract from corpus instead of fabricating from a one-line description) and `/ss:clarify` (skip questions already answered in corpus). Backward-compatible: zero behavior change when `references.md` is absent.
 

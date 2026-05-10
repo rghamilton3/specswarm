@@ -1,4 +1,4 @@
-# SpecSwarm v6.2.0
+# SpecSwarm v6.3.0
 
 Spec-driven development for Claude Code. Build → Fix → Modify → Ship, with quality gates, multi-agent orchestration, and version-controlled specs.
 
@@ -62,7 +62,9 @@ The clearer the spec document, the less back-and-forth during clarification.
 
 **v6.1.0 makes this even better.** If your project has existing PRDs, design docs, decision logs, or a legacy/prototype reference codebase, declare them in `.specswarm/references.md` (auto-populated by `/ss:init`) and SpecSwarm will read them automatically during `/ss:specify` and `/ss:clarify` — quoting from corpus content with citations instead of fabricating, and skipping clarification questions whose answers are already locked in.
 
-**v6.2.0 closes the loop on Claude Code memory.** If your project has memory directories declared in `references.md`, `/ss:init` now scans your `feedback_*.md` files for imperative rules ("X must NEVER appear in Y") and proposes constitution principles in the mechanical hook format. You wrote the rule once in memory; SpecSwarm proposes the enforcement; you accept or reject each proposal. Accepted principles get PostToolUse warning hooks generated automatically. See [CHANGELOG.md](./CHANGELOG.md) for details.
+**v6.2.0 closes the loop on Claude Code memory.** If your project has memory directories declared in `references.md`, `/ss:init` now scans your `feedback_*.md` files for imperative rules ("X must NEVER appear in Y") and proposes constitution principles in the mechanical hook format. You wrote the rule once in memory; SpecSwarm proposes the enforcement; you accept or reject each proposal. Accepted principles get PostToolUse hooks generated automatically.
+
+**v6.3.0 gives constitutional principles teeth.** Each rule block now accepts an optional `severity: warn | block` field (default warn). When a `severity: block` rule fires — say, a trade-secret import slipping into the frontend bundle — the PostToolUse hook returns `decision: block` and Claude is told to revert/fix rather than just being warned. v6.3.0 also fixes a pre-existing path-glob bug that had been silently preventing warn hooks from firing in production. See [CHANGELOG.md](./CHANGELOG.md) for details.
 
 ---
 
@@ -79,9 +81,9 @@ A lot happens automatically inside each command. You don't invoke these phases d
 5. **Convention analysis** — extracts coding patterns from existing code
 6. **MCP discovery & registration** — adds Context7, Playwright, Postgres, etc., based on detected stack
 7. **Project subagent seeding** — generates project-specific implementer agents matched to your stack
-8. **Constitutional warning hooks** — turns mechanically-checkable principles into PostToolUse warnings
+8. **Constitutional hooks** — turns mechanically-checkable principles into PostToolUse hooks; *(v6.3.0)* each principle can declare `severity: warn` or `severity: block` — warn surfaces a system message, block returns `decision: block` so Claude reverts/fixes
 9. **References discovery** *(v6.1.0)* — auto-discovers spec corpus markdown docs, sibling reference codebases (stem-similarity filter), and Claude Code memory directories; interactive picker writes `.specswarm/references.md`
-10. **Memory-driven principle import** *(v6.2.0)* — scans declared memory directories for `feedback_*.md` rules, drafts constitution principles in hook-enforceable format, asks user to accept/reject each; accepted principles append to constitution.md and trigger automatic warning-hook regeneration
+10. **Memory-driven principle import** *(v6.2.0, severity-aware in v6.3.0)* — scans declared memory directories for `feedback_*.md` rules, drafts constitution principles in hook-enforceable format, asks user to accept/reject each; gravity signals in the source memory (`trade secret`, `compliance`, `must NEVER`, etc.) propose `severity: block` automatically
 
 ### Inside `/ss:build`
 
