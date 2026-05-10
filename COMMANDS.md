@@ -32,6 +32,7 @@ Initialize SpecSwarm in your project with interactive setup wizard.
 - Sets up `constitution.md` for project governance
 - Configures performance budgets
 - *(v6.1.0)* Auto-discovers spec corpus, reference codebases, and memory dirs; writes `references.md` for `/ss:specify` and `/ss:clarify` to consult
+- *(v6.2.0)* Scans declared memory dirs for `feedback_*.md` rules; proposes constitution principles in hook-enforceable format; user accepts/rejects each; accepted principles append to `constitution.md` and trigger PostToolUse warning hook regeneration
 
 **When to use:**
 - First-time project setup

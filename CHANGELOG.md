@@ -5,6 +5,44 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.2.0] - 2026-05-08 - Memory-Driven Principle Import
+
+**SpecSwarm can now translate Claude Code memory files into constitution principles.** When the user populates memory directories in `.specswarm/references.md` (the v6.1.0 feature), `/ss:init` adds a new Step 4.5 that scans those memory dirs, identifies opinionated rules ("must NEVER", "always", "required to"), drafts them in the constitutional-hook format, and asks the user to accept or reject each proposal. Accepted principles are appended to constitution.md and trigger automatic regeneration of the PostToolUse warning hooks.
+
+The motivating insight: Claude Code users often write rules into memory files (`feedback_*.md` especially) in prose. Translating those rules into the mechanical hook format manually is grunt work users shouldn't have to do twice. v6.2.0 collapses this into an interactive accept/reject loop.
+
+### Added
+
+- **`plugins/ss/lib/references-loader.sh`** — three new functions for memory file scanning:
+  - `ss_memory_scan_files` — walks every memory dir from references.md; lists files matching `feedback_*.md` / `project_*.md` / `reference_*.md` / `user_*.md`. One absolute path per line, sort -u'd. maxdepth=1 (memory dirs are flat by Claude Code convention).
+  - `ss_memory_classify_kind <filename>` — returns one of `feedback` / `project` / `reference` / `user` / `other` based on filename prefix.
+  - `ss_memory_count_by_kind` — emits TSV (kind\tcount) for /ss:init UX summaries.
+
+- **`/ss:init` Step 4.5: Memory-Driven Principle Import** — interactive principle proposals from memory:
+  - Three-mode AskUserQuestion picker: `Yes, scan all` / `Yes, feedback files only` / `Skip memory import`
+  - LLM eligibility heuristics: PROPOSE when memory contains imperative language ("must NEVER", "always", "required") + a regex-matchable pattern signal + a rationale clause; SKIP pure context/state files
+  - Proposed principles map to one of three constitutional-hook templates (`no-pattern-in-paths` / `required-import-in-files` / `required-pair-in-additions`)
+  - Per-principle AskUserQuestion: accept-as-drafted / accept-but-edit / skip
+  - Cap at 10 proposals per init session
+  - Accepted principles append to constitution.md under a dated section header `## Imported from memory (auto-proposed YYYY-MM-DD)` — non-destructive
+  - Re-runs `generate_constitutional_hooks` after import (idempotent) so newly-imported principles immediately get their PostToolUse warning hooks
+  - Step 7 summary line now shows "+N principle(s) imported from memory" beneath constitution.md when import yielded principles
+
+### Smoke-tested
+
+- All three new memory-scanning functions tested against Marty's real customcult-v3-mentor memory dir (49 files): clean classification of 3 feedback / 43 project / 2 reference / 1 user / 0 other; MEMORY.md correctly excluded.
+
+### Backward compatibility
+
+When `.specswarm/references.md` has no memory directories declared (or doesn't exist), Step 4.5 is fully skipped. v6.1.0 behavior is preserved exactly. The new memory-scanning lib functions return silent + empty when no memory dirs are configured.
+
+### Why this is a minor (6.1.0 → 6.2.0) release
+
+- All changes are additive — no breaking changes
+- Step 4.5 is opt-in via the user's AskUserQuestion choice
+- Memory-scanning functions guard on `ss_references_exist` before doing work
+- Existing v6.0.0 / v6.1.0 init runs continue to work without modification
+
 ## [6.1.0] - 2026-05-08 - External Reference Corpus
 
 **SpecSwarm now consults external authoritative sources before fabricating spec content.** Projects with existing PRDs, design docs, decision logs, legacy/prototype reference codebases, or Claude Code memory directories can declare them in `.specswarm/references.md` and SpecSwarm will read those sources during `/ss:specify` (extract from corpus instead of fabricating from a one-line description) and `/ss:clarify` (skip questions already answered in corpus). Backward-compatible: zero behavior change when `references.md` is absent.
