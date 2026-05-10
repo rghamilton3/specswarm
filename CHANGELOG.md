@@ -5,6 +5,29 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.2.1] - 2026-05-08 - Grandparent Discovery (Dogfooding Patch)
+
+**Bug fix from first real-world dogfooding of v6.2.0.** The auto-discovery in `/ss:init` Step 3.5 was missing reference codebases and Claude Code memory directories when the build dir was nested inside a mentor/spec workspace (e.g., `customcult-v3-mentor/customcult-v3/` with the v2 reference at `~/code-projects/customcult2/`).
+
+### Fixed
+
+- **Sibling-repo discovery now scans grandparent dir** in addition to parent dir. Prior behavior only walked `$PARENT_DIR`, which missed reference codebases sitting at the grandparent level (the common "build-dir-inside-mentor-workspace" layout). The stem-similarity filter still prevents noise in dense grandparents like `~/code-projects/`.
+- **Spec corpus discovery now scans grandparent + grandparent/docs + grandparent/spec** for the same reason. Existing parent-level scans unchanged.
+- **Memory directory auto-detection now checks parent-workspace memory key** in addition to the build-dir memory key. When Claude Code memory lives at `~/.claude/projects/<parent-workspace-key>/memory/` (the typical case for mentor-workspace layouts), this is now discovered.
+
+### Validated against two layouts
+
+| Layout | Pre-patch result | Post-patch result |
+|--------|------------------|-------------------|
+| `customcult-v3-mentor/customcult-v3/` (build-in-mentor) | 4 spec docs, 0 codebases, 0 memory | 4 spec docs, **2 codebases (customcult2 + customcult)**, **1 parent-workspace memory** |
+| `~/code-projects/specswarm/` (flat) | 1 sibling (specswarm.com) | 1 sibling (specswarm.com) — no over-discovery |
+
+Dedupe logic prevents the same sibling appearing in both parent and grandparent scans. Skip-self logic prevents the build dir's own parent appearing as a "sibling" when scanning grandparent.
+
+### Why patch (not minor)
+
+Pure bug fix — the original v6.1.0 design covered the build-in-mentor case in spirit (the references-loader supported it) but Step 3.5's auto-discovery didn't actually scan deep enough. No new features, no API changes, no schema changes.
+
 ## [6.2.0] - 2026-05-08 - Memory-Driven Principle Import
 
 **SpecSwarm can now translate Claude Code memory files into constitution principles.** When the user populates memory directories in `.specswarm/references.md` (the v6.1.0 feature), `/ss:init` adds a new Step 4.5 that scans those memory dirs, identifies opinionated rules ("must NEVER", "always", "required to"), drafts them in the constitutional-hook format, and asks the user to accept or reject each proposal. Accepted principles are appended to constitution.md and trigger automatic regeneration of the PostToolUse warning hooks.

@@ -11,7 +11,7 @@
     {
       "name": "ss",
       "source": "./plugins/ss",
-      "version": "6.2.0",
+      "version": "6.2.1",
       "description": "SpecSwarm v6 — Build, Modify, Fix, and Ship with natural language. Specification-driven development skills that handle complete software lifecycle workflows autonomously. Commands at /ss:*."
     },
     {
