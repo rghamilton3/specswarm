@@ -254,6 +254,261 @@ If `$PRINCIPLES_CHOICE` == "Let me provide custom":
 
 ---
 
+### Step 3.5: References Discovery (NEW in v6.1.0)
+
+**Skip this step if `--minimal` flag is present.**
+
+Discovers external authoritative sources this project depends on — spec corpus markdown docs, reference codebases (legacy / prototype / sibling repos), and Claude Code memory directories — and writes a populated `.specswarm/references.md`. SpecSwarm consults references at session start (verification), during `/ss:specify` (extracts from spec corpus instead of fabricating), and during `/ss:clarify` (skips questions already answered in corpus or memory).
+
+```bash
+echo ""
+echo "🔗 Discovering external references..."
+echo ""
+
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+PARENT_DIR="$(cd "$REPO_ROOT/.." && pwd)"
+
+# Auto-discovery: candidates accumulated as TSV (kind|name|path|verify-file|rationale)
+DISCOVERED=()
+
+# 1. Sibling git repos that share a name stem with the current repo
+#    (Stem = chars before first hyphen/underscore/dot in the current repo's basename.
+#     This filters out unrelated siblings in shared parent dirs like ~/code-projects/.)
+REPO_NAME="$(basename "$REPO_ROOT")"
+REPO_STEM=$(echo "$REPO_NAME" | sed -E 's/[-._].*$//')
+
+if [ -d "$PARENT_DIR" ] && [ -n "$REPO_STEM" ]; then
+  for sibling in "$PARENT_DIR"/*/; do
+    [ -d "$sibling/.git" ] || continue
+    sibling_path="${sibling%/}"
+    sibling_name="$(basename "$sibling_path")"
+    [ "$sibling_name" = "$REPO_NAME" ] && continue
+
+    # Stem-similarity filter: sibling name must contain our stem as a substring
+    # (case-insensitive). Skip otherwise.
+    if ! echo "$sibling_name" | grep -qiF "$REPO_STEM"; then
+      continue
+    fi
+
+    # Auto-detect a verify-file by walking common manifest filenames
+    verify_file=""
+    for candidate in package.json Cargo.toml go.mod pyproject.toml requirements.txt composer.json Gemfile pom.xml build.gradle; do
+      if [ -f "$sibling_path/$candidate" ]; then
+        verify_file="$candidate"
+        break
+      fi
+    done
+    [ -z "$verify_file" ] && verify_file="README.md"
+
+    DISCOVERED+=("codebase|$sibling_name|../$sibling_name|$verify_file|Sibling repository (auto-detected; shares '$REPO_STEM' stem)")
+  done
+fi
+
+# 2. Common spec doc patterns in repo root, ../docs/, ../spec/, parent dir
+SPEC_PATTERNS=(
+  "PRD.md" "ARCHITECTURE.md" "ROADMAP.md" "DESIGN.md" "SPEC.md" "REQUIREMENTS.md"
+  "INTERACTION-FLOWS.md" "CREATING-THE-STRATEGY.md" "BUILDER-KICKOFF.md" "SPEC-BACKLOG.md"
+)
+SEARCH_DIRS=("$REPO_ROOT" "$REPO_ROOT/docs" "$PARENT_DIR" "$PARENT_DIR/docs" "$PARENT_DIR/spec")
+
+for dir in "${SEARCH_DIRS[@]}"; do
+  [ -d "$dir" ] || continue
+  for pattern in "${SPEC_PATTERNS[@]}"; do
+    [ -f "$dir/$pattern" ] || continue
+    # Compute path relative to repo root
+    rel_path=$(realpath --relative-to="$REPO_ROOT" "$dir/$pattern" 2>/dev/null || echo "$dir/$pattern")
+    DISCOVERED+=("spec|$pattern|$rel_path||")
+  done
+done
+
+# 3. Claude Code memory directory at the canonical path for this repo
+MEM_PATH_KEY=$(echo "$REPO_ROOT" | tr / -)
+CANONICAL_MEM_DIR="$HOME/.claude/projects/${MEM_PATH_KEY}/memory"
+GENERIC_MEM_DIR="$HOME/.claude/memory"
+
+if [ -d "$CANONICAL_MEM_DIR" ]; then
+  DISCOVERED+=("memory|claude-project-memory|$CANONICAL_MEM_DIR||")
+fi
+if [ -d "$GENERIC_MEM_DIR" ]; then
+  DISCOVERED+=("memory|claude-global-memory|$GENERIC_MEM_DIR||")
+fi
+
+# Display discovered candidates
+DISCOVERED_COUNT=${#DISCOVERED[@]}
+
+if [ "$DISCOVERED_COUNT" -eq 0 ]; then
+  echo "ℹ️  No reference candidates auto-discovered."
+  echo "   You can manually edit .specswarm/references.md after init if you have"
+  echo "   external spec docs, legacy/prototype codebases, or memory directories"
+  echo "   you want SpecSwarm to consult."
+  echo ""
+else
+  echo "Found $DISCOVERED_COUNT candidate reference(s):"
+  echo ""
+  spec_count=0
+  codebase_count=0
+  memory_count=0
+  for entry in "${DISCOVERED[@]}"; do
+    IFS='|' read -r kind name path verify_file rationale <<< "$entry"
+    case "$kind" in
+      spec)     echo "  📄 [spec corpus]    $path"; spec_count=$((spec_count+1)) ;;
+      codebase) echo "  📦 [codebase]       $name → $path (verify: $verify_file)"; codebase_count=$((codebase_count+1)) ;;
+      memory)   echo "  🧠 [memory dir]     $path"; memory_count=$((memory_count+1)) ;;
+    esac
+  done
+  echo ""
+fi
+
+# Save discovered candidates to a temp file for the AskUserQuestion step
+mkdir -p "$REPO_ROOT/.specswarm"
+DISCOVERY_TMP="$REPO_ROOT/.specswarm/.references-discovery.tmp"
+printf '%s\n' "${DISCOVERED[@]}" > "$DISCOVERY_TMP"
+```
+
+If `$DISCOVERED_COUNT > 0`, use **AskUserQuestion**:
+
+```
+Question: "Use the discovered references?"
+Header: "References"
+Options:
+  1. "Use all discovered"
+     Description: "Add all candidates above to .specswarm/references.md as-is. You can edit the file after."
+  2. "Pick which to use"
+     Description: "Walk through each candidate and accept/reject individually."
+  3. "Skip — none of these"
+     Description: "Don't generate references.md from auto-discovery. You can manually create it later."
+```
+
+Store in `$REF_DISCOVERY_CHOICE`.
+
+If `$REF_DISCOVERY_CHOICE` == "Pick which to use":
+
+For each entry in the discovery temp file, use **AskUserQuestion**:
+
+```
+Question: "Include {name} ({kind})?"
+Header: "Reference"
+Options:
+  1. "Yes, include"
+     Description: "{path} (verify-file: {verify_file})"
+  2. "No, skip"
+     Description: "Don't add this reference"
+```
+
+Track the user's accept/reject choices in `$ACCEPTED_ENTRIES` (re-using the TSV format).
+
+If `$REF_DISCOVERY_CHOICE` == "Use all discovered":
+  `$ACCEPTED_ENTRIES = $DISCOVERED`
+
+If `$REF_DISCOVERY_CHOICE` == "Skip — none of these":
+  `$ACCEPTED_ENTRIES = empty`
+
+Use **AskUserQuestion** to allow manual additions:
+
+```
+Question: "Add reference codebases or spec docs not auto-discovered?"
+Header: "More references"
+Options:
+  1. "No, that's enough"
+     Description: "Use only what was discovered + accepted."
+  2. "Add a reference codebase"
+     Description: "Specify a path to a legacy/prototype/sibling repo manually."
+  3. "Add a spec corpus document"
+     Description: "Specify a path to a markdown spec document manually."
+```
+
+If user picks "Add a reference codebase" or "Add a spec corpus document", prompt for path, name (codebases only), verify-file (codebases only — auto-detect if possible), and rationale (codebases only). Append to `$ACCEPTED_ENTRIES`. Loop until user picks "No, that's enough" or has added 5 entries (cap to keep init bounded).
+
+Now write `.specswarm/references.md`:
+
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+DISCOVERY_TMP="$REPO_ROOT/.specswarm/.references-discovery.tmp"
+REFS_FILE="$REPO_ROOT/.specswarm/references.md"
+PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TEMPLATE="${PLUGIN_DIR}/templates/references.md.template"
+
+# If user accepted nothing, skip writing entirely (keeps the repo clean)
+if [ ! -s "$DISCOVERY_TMP.accepted" ] 2>/dev/null && [ -z "$ACCEPTED_ENTRIES" ]; then
+  echo "  No references selected. Skipping .specswarm/references.md generation."
+  rm -f "$DISCOVERY_TMP" "$DISCOVERY_TMP.accepted" 2>/dev/null
+else
+  # Build the file from template + accepted entries
+  cat > "$REFS_FILE" << 'HEADER'
+# References
+
+> External authoritative sources this project depends on. Generated by `/ss:init`
+> on initial setup; safe to hand-edit any time. SpecSwarm re-reads on every
+> relevant command invocation.
+>
+> Schema reference: `plugins/ss/templates/references.md.template`
+
+---
+
+HEADER
+
+  # Spec corpus section
+  echo "## Spec corpus" >> "$REFS_FILE"
+  echo "" >> "$REFS_FILE"
+  while IFS='|' read -r kind name path verify_file rationale; do
+    [ "$kind" = "spec" ] || continue
+    echo "- path: $path" >> "$REFS_FILE"
+  done < "${DISCOVERY_TMP}.accepted"
+  # If empty section, leave a placeholder comment so user knows where to add later
+  if ! grep -q '^- path:' <(awk '/^## Spec corpus/,/^## /' "$REFS_FILE"); then
+    echo "<!-- No spec corpus configured. Add markdown docs SpecSwarm should consult during /ss:specify and /ss:clarify. -->" >> "$REFS_FILE"
+  fi
+  echo "" >> "$REFS_FILE"
+  echo "---" >> "$REFS_FILE"
+  echo "" >> "$REFS_FILE"
+
+  # Reference codebases section
+  echo "## Reference codebases" >> "$REFS_FILE"
+  echo "" >> "$REFS_FILE"
+  has_codebase=false
+  while IFS='|' read -r kind name path verify_file rationale; do
+    [ "$kind" = "codebase" ] || continue
+    has_codebase=true
+    {
+      echo "- name: $name"
+      echo "  path: $path"
+      echo "  verify-file: $verify_file"
+      echo "  rationale: $rationale"
+      echo ""
+    } >> "$REFS_FILE"
+  done < "${DISCOVERY_TMP}.accepted"
+  if [ "$has_codebase" = false ]; then
+    echo "<!-- No reference codebases configured. Add legacy/prototype/sibling repos to be verified at session start. -->" >> "$REFS_FILE"
+    echo "" >> "$REFS_FILE"
+  fi
+  echo "---" >> "$REFS_FILE"
+  echo "" >> "$REFS_FILE"
+
+  # Memory directories section
+  echo "## Memory directories" >> "$REFS_FILE"
+  echo "" >> "$REFS_FILE"
+  while IFS='|' read -r kind name path verify_file rationale; do
+    [ "$kind" = "memory" ] || continue
+    echo "- path: $path" >> "$REFS_FILE"
+  done < "${DISCOVERY_TMP}.accepted"
+  if ! grep -q '^- path:' <(awk '/^## Memory directories/,0' "$REFS_FILE"); then
+    echo "<!-- No memory directories configured. Add Claude Code memory paths so /ss:init can propose principles auto-extracted from feedback_*.md and project_*.md files. -->" >> "$REFS_FILE"
+  fi
+
+  # Cleanup
+  rm -f "$DISCOVERY_TMP" "$DISCOVERY_TMP.accepted" 2>/dev/null
+
+  ACCEPTED_COUNT=$(wc -l < "${DISCOVERY_TMP}.accepted" 2>/dev/null || echo "0")
+  echo "✅ Created .specswarm/references.md ($ACCEPTED_COUNT entries)"
+fi
+
+echo ""
+```
+
+**Note for the implementer:** when the user picks "Use all discovered" the implementation should `cp "$DISCOVERY_TMP" "$DISCOVERY_TMP.accepted"`. When the user picks individually, append accepted entries to `$DISCOVERY_TMP.accepted`. When the user picks "Skip", leave `$DISCOVERY_TMP.accepted` empty / non-existent.
+
+---
+
 ### Step 4: Create .specswarm/constitution.md
 
 Use the **SlashCommand** tool to execute the existing constitution command with the gathered information:
@@ -715,6 +970,9 @@ echo "   ✓ .specswarm/constitution.md      (governance & principles)"
 echo "   ✓ .specswarm/tech-stack.md        (approved technologies)"
 echo "   ✓ .specswarm/quality-standards.md (quality gates)"
 echo "   ✓ .specswarm/conventions.md       (code style & patterns)"
+if [ -f ".specswarm/references.md" ]; then
+echo "   ✓ .specswarm/references.md        (external authoritative sources)"
+fi
 if [ -f ".mcp.json" ]; then
 echo "   ✓ .mcp.json                      (MCP server configuration)"
 fi
