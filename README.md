@@ -1,4 +1,4 @@
-# SpecSwarm v6.1.0
+# SpecSwarm v6.2.0
 
 Spec-driven development for Claude Code. Build → Fix → Modify → Ship, with quality gates, multi-agent orchestration, and version-controlled specs.
 
@@ -60,7 +60,9 @@ Out of scope for this build:
 
 The clearer the spec document, the less back-and-forth during clarification.
 
-**v6.1.0 makes this even better.** If your project has existing PRDs, design docs, decision logs, or a legacy/prototype reference codebase, declare them in `.specswarm/references.md` (auto-populated by `/ss:init`) and SpecSwarm will read them automatically during `/ss:specify` and `/ss:clarify` — quoting from corpus content with citations instead of fabricating, and skipping clarification questions whose answers are already locked in. See [CHANGELOG.md](./CHANGELOG.md) for details.
+**v6.1.0 makes this even better.** If your project has existing PRDs, design docs, decision logs, or a legacy/prototype reference codebase, declare them in `.specswarm/references.md` (auto-populated by `/ss:init`) and SpecSwarm will read them automatically during `/ss:specify` and `/ss:clarify` — quoting from corpus content with citations instead of fabricating, and skipping clarification questions whose answers are already locked in.
+
+**v6.2.0 closes the loop on Claude Code memory.** If your project has memory directories declared in `references.md`, `/ss:init` now scans your `feedback_*.md` files for imperative rules ("X must NEVER appear in Y") and proposes constitution principles in the mechanical hook format. You wrote the rule once in memory; SpecSwarm proposes the enforcement; you accept or reject each proposal. Accepted principles get PostToolUse warning hooks generated automatically. See [CHANGELOG.md](./CHANGELOG.md) for details.
 
 ---
 
@@ -79,6 +81,7 @@ A lot happens automatically inside each command. You don't invoke these phases d
 7. **Project subagent seeding** — generates project-specific implementer agents matched to your stack
 8. **Constitutional warning hooks** — turns mechanically-checkable principles into PostToolUse warnings
 9. **References discovery** *(v6.1.0)* — auto-discovers spec corpus markdown docs, sibling reference codebases (stem-similarity filter), and Claude Code memory directories; interactive picker writes `.specswarm/references.md`
+10. **Memory-driven principle import** *(v6.2.0)* — scans declared memory directories for `feedback_*.md` rules, drafts constitution principles in hook-enforceable format, asks user to accept/reject each; accepted principles append to constitution.md and trigger automatic warning-hook regeneration
 
 ### Inside `/ss:build`
 
