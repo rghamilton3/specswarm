@@ -266,77 +266,50 @@ echo "🔗 Discovering external references..."
 echo ""
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-PARENT_DIR="$(cd "$REPO_ROOT/.." && pwd 2>/dev/null)"
-GRANDPARENT_DIR="$(cd "$REPO_ROOT/../.." && pwd 2>/dev/null)"
+PARENT_DIR="$(cd "$REPO_ROOT/.." && pwd)"
 
 # Auto-discovery: candidates accumulated as TSV (kind|name|path|verify-file|rationale)
 DISCOVERED=()
 
 # 1. Sibling git repos that share a name stem with the current repo
 #    (Stem = chars before first hyphen/underscore/dot in the current repo's basename.
-#     Stem-similarity filter prevents noise in dense shared parents like ~/code-projects/.)
-#    Scans BOTH parent and grandparent — supports the "build-dir-inside-mentor-workspace"
-#    layout (v6.2.1 fix) where reference codebases sit at the grandparent level
-#    (e.g., ~/code-projects/<mentor>/<build>/ with refs at ~/code-projects/<sibling>/).
+#     This filters out unrelated siblings in shared parent dirs like ~/code-projects/.)
 REPO_NAME="$(basename "$REPO_ROOT")"
 REPO_STEM=$(echo "$REPO_NAME" | sed -E 's/[-._].*$//')
 
-# Track which sibling names we've already added (dedupe across parent + grandparent scans)
-declare -A SEEN_SIBLINGS
+if [ -d "$PARENT_DIR" ] && [ -n "$REPO_STEM" ]; then
+  for sibling in "$PARENT_DIR"/*/; do
+    [ -d "$sibling/.git" ] || continue
+    sibling_path="${sibling%/}"
+    sibling_name="$(basename "$sibling_path")"
+    [ "$sibling_name" = "$REPO_NAME" ] && continue
 
-if [ -n "$REPO_STEM" ]; then
-  for scan_dir in "$PARENT_DIR" "$GRANDPARENT_DIR"; do
-    [ -z "$scan_dir" ] && continue
-    [ -d "$scan_dir" ] || continue
-    # Skip grandparent scan when grandparent IS parent (shallow filesystem layouts)
-    [ "$scan_dir" = "$GRANDPARENT_DIR" ] && [ "$GRANDPARENT_DIR" = "$PARENT_DIR" ] && continue
-
-    if [ "$scan_dir" = "$PARENT_DIR" ]; then
-      rel_prefix=".."
-    else
-      rel_prefix="../.."
+    # Stem-similarity filter: sibling name must contain our stem as a substring
+    # (case-insensitive). Skip otherwise.
+    if ! echo "$sibling_name" | grep -qiF "$REPO_STEM"; then
+      continue
     fi
 
-    for sibling in "$scan_dir"/*/; do
-      [ -d "$sibling/.git" ] || continue
-      sibling_path="${sibling%/}"
-      sibling_name="$(basename "$sibling_path")"
-      [ "$sibling_name" = "$REPO_NAME" ] && continue
-      # Dedupe: skip same-named sibling found at a closer dir
-      [ -n "${SEEN_SIBLINGS[$sibling_name]:-}" ] && continue
-      # Skip the build dir's own parent (which would appear as a "sibling" at grandparent scan)
-      [ "$sibling_path" = "$PARENT_DIR" ] && continue
-      # Stem-similarity filter (case-insensitive substring)
-      if ! echo "$sibling_name" | grep -qiF "$REPO_STEM"; then continue; fi
-
-      # Auto-detect a verify-file by walking common manifest filenames
-      verify_file=""
-      for candidate in package.json Cargo.toml go.mod pyproject.toml requirements.txt composer.json Gemfile pom.xml build.gradle; do
-        if [ -f "$sibling_path/$candidate" ]; then
-          verify_file="$candidate"
-          break
-        fi
-      done
-      [ -z "$verify_file" ] && verify_file="README.md"
-
-      SEEN_SIBLINGS[$sibling_name]=1
-      DISCOVERED+=("codebase|$sibling_name|$rel_prefix/$sibling_name|$verify_file|Sibling repository (auto-detected; shares '$REPO_STEM' stem; found at $rel_prefix)")
+    # Auto-detect a verify-file by walking common manifest filenames
+    verify_file=""
+    for candidate in package.json Cargo.toml go.mod pyproject.toml requirements.txt composer.json Gemfile pom.xml build.gradle; do
+      if [ -f "$sibling_path/$candidate" ]; then
+        verify_file="$candidate"
+        break
+      fi
     done
+    [ -z "$verify_file" ] && verify_file="README.md"
+
+    DISCOVERED+=("codebase|$sibling_name|../$sibling_name|$verify_file|Sibling repository (auto-detected; shares '$REPO_STEM' stem)")
   done
 fi
 
-# 2. Common spec doc patterns in repo root, ../docs/, ../spec/, parent dir,
-#    AND grandparent + grandparent/docs (v6.2.1 fix — supports the same
-#    build-dir-inside-mentor-workspace layout as the sibling scan above).
+# 2. Common spec doc patterns in repo root, ../docs/, ../spec/, parent dir
 SPEC_PATTERNS=(
   "PRD.md" "ARCHITECTURE.md" "ROADMAP.md" "DESIGN.md" "SPEC.md" "REQUIREMENTS.md"
   "INTERACTION-FLOWS.md" "CREATING-THE-STRATEGY.md" "BUILDER-KICKOFF.md" "SPEC-BACKLOG.md"
 )
 SEARCH_DIRS=("$REPO_ROOT" "$REPO_ROOT/docs" "$PARENT_DIR" "$PARENT_DIR/docs" "$PARENT_DIR/spec")
-# Only add grandparent dirs if they differ from parent (avoid double-scan)
-if [ -n "$GRANDPARENT_DIR" ] && [ "$GRANDPARENT_DIR" != "$PARENT_DIR" ]; then
-  SEARCH_DIRS+=("$GRANDPARENT_DIR" "$GRANDPARENT_DIR/docs" "$GRANDPARENT_DIR/spec")
-fi
 
 for dir in "${SEARCH_DIRS[@]}"; do
   [ -d "$dir" ] || continue
@@ -348,32 +321,14 @@ for dir in "${SEARCH_DIRS[@]}"; do
   done
 done
 
-# 3. Claude Code memory directory at the canonical path for this repo, the parent
-#    workspace, AND the global memory location. The parent-workspace check (v6.2.1
-#    fix) supports the build-dir-inside-mentor-workspace layout where the actual
-#    Claude memory lives one level up from the build dir.
-BUILD_MEM_KEY=$(echo "$REPO_ROOT" | tr / -)
-PARENT_MEM_KEY=""
-[ -n "$PARENT_DIR" ] && PARENT_MEM_KEY=$(echo "$PARENT_DIR" | tr / -)
-
-# Track to avoid duplicates if PARENT == BUILD (shouldn't happen, but safe)
-declare -A SEEN_MEM_DIRS
-for key in "$BUILD_MEM_KEY" "$PARENT_MEM_KEY"; do
-  [ -z "$key" ] && continue
-  MEM_DIR="$HOME/.claude/projects/${key}/memory"
-  [ -d "$MEM_DIR" ] || continue
-  [ -n "${SEEN_MEM_DIRS[$MEM_DIR]:-}" ] && continue
-  SEEN_MEM_DIRS[$MEM_DIR]=1
-
-  # Label: distinguish build-dir memory vs parent-workspace memory
-  if [ "$key" = "$BUILD_MEM_KEY" ]; then
-    DISCOVERED+=("memory|claude-build-memory|$MEM_DIR||")
-  else
-    DISCOVERED+=("memory|claude-parent-workspace-memory|$MEM_DIR||")
-  fi
-done
-
+# 3. Claude Code memory directory at the canonical path for this repo
+MEM_PATH_KEY=$(echo "$REPO_ROOT" | tr / -)
+CANONICAL_MEM_DIR="$HOME/.claude/projects/${MEM_PATH_KEY}/memory"
 GENERIC_MEM_DIR="$HOME/.claude/memory"
+
+if [ -d "$CANONICAL_MEM_DIR" ]; then
+  DISCOVERED+=("memory|claude-project-memory|$CANONICAL_MEM_DIR||")
+fi
 if [ -d "$GENERIC_MEM_DIR" ]; then
   DISCOVERED+=("memory|claude-global-memory|$GENERIC_MEM_DIR||")
 fi
