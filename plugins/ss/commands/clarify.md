@@ -109,6 +109,110 @@ Execution steps:
    - Clarification would not materially change implementation or validation strategy
    - Information is better deferred to planning phase (note internally)
 
+2.5. **Cross-Check Against External References** (NEW in v6.1.0):
+
+   Before generating the question queue, check whether each candidate question is already answered in the project's external references. The point of clarification is to *resolve* ambiguity — not to re-ask decisions the corpus has already locked in. For projects with substantial spec corpora and decision logs (Marty's customcult-v3 has 379+ [OPEN] markers, most with explicit corpus-side resolutions), this filter dramatically reduces noise.
+
+   ```bash
+   REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+   PLUGIN_DIR_SS="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+   LOADER="${PLUGIN_DIR_SS}/lib/references-loader.sh"
+
+   REFERENCES_AVAILABLE=false
+   SPEC_CORPUS_PATHS=()
+   MEMORY_DIRS=()
+   PRIOR_REFS_CONSULTED=()
+
+   if [ -f "$LOADER" ]; then
+     # shellcheck disable=SC1090
+     source "$LOADER"
+
+     if ss_references_exist; then
+       REFERENCES_AVAILABLE=true
+
+       while IFS= read -r path; do
+         [ -z "$path" ] && continue
+         abs=$(ss_references_resolve_path "$path")
+         [ -f "$abs" ] && SPEC_CORPUS_PATHS+=("$abs")
+       done < <(ss_references_spec_corpus_paths)
+
+       while IFS= read -r path; do
+         [ -z "$path" ] && continue
+         [ -d "$path" ] && MEMORY_DIRS+=("$path")
+       done < <(ss_references_memory_dirs)
+     fi
+   fi
+
+   # Read references_consulted from spec.md frontmatter (set by /ss:specify in v6.1.0+)
+   if [ -f "$FEATURE_SPEC" ]; then
+     # Extract YAML frontmatter; parse 'references_consulted:' list
+     # (Awk-only — no yq dependency)
+     while IFS= read -r line; do
+       [ -z "$line" ] && continue
+       PRIOR_REFS_CONSULTED+=("$line")
+     done < <(awk '
+       /^---$/ { fm = !fm; next }
+       fm && /^references_consulted:/ { in_list=1; next }
+       fm && in_list && /^[[:space:]]*-[[:space:]]/ {
+         sub(/^[[:space:]]*-[[:space:]]*/, "")
+         sub(/[[:space:]]*#.*$/, "")
+         sub(/[[:space:]]*$/, "")
+         print
+       }
+       fm && in_list && /^[^[:space:]-]/ { in_list=0 }
+     ' "$FEATURE_SPEC" 2>/dev/null)
+   fi
+
+   if [ "$REFERENCES_AVAILABLE" = true ]; then
+     echo ""
+     echo "🔗 Cross-checking candidate questions against external references:"
+     for p in "${SPEC_CORPUS_PATHS[@]}"; do
+       echo "   📄 $p"
+     done
+     for d in "${MEMORY_DIRS[@]}"; do
+       echo "   🧠 $d"
+     done
+     if [ "${#PRIOR_REFS_CONSULTED[@]}" -gt 0 ]; then
+       echo ""
+       echo "   ↳ Spec.md frontmatter notes these refs were already consulted at /ss:specify time:"
+       for r in "${PRIOR_REFS_CONSULTED[@]}"; do
+         echo "     - $r"
+       done
+     fi
+     echo ""
+   fi
+   ```
+
+   **If `REFERENCES_AVAILABLE = true`, you (Claude) MUST do the following BEFORE generating the question queue in Step 3:**
+
+   a. **Read each spec corpus path** in `SPEC_CORPUS_PATHS[@]` using the `Read` tool. Prioritize sections most likely to contain decisions:
+   - Decision logs (typically `## Decision Log` or files with dated entries)
+   - Schema definitions (data model sections)
+   - Authoritative-source pointers (e.g., a builder kickoff doc that names which doc owns which topic)
+
+   b. **Scan memory dirs** in `MEMORY_DIRS[@]` for `feedback_*.md` (preferences/rules) and `project_*.md` (state/context) files. These often encode decisions that aren't in the formal corpus.
+
+   c. **For EACH candidate question from Step 2's ambiguity scan**, do this filter pass:
+   - Search the corpus for matching content (use `Bash` + grep when corpus is large; use `Read` when targeted)
+   - Categorize the question:
+     - **CORPUS-RESOLVED** — corpus contains an explicit decision; drop the question and instead inject the corpus answer directly into the spec with a citation. Note this in the report (Step 8).
+     - **CORPUS-PARTIAL** — corpus has related context but doesn't decide; keep the question, but PRE-LOAD the candidate answers from corpus context. AskUserQuestion options should reflect what the corpus has hinted at, plus any genuine alternatives.
+     - **CORPUS-SILENT** — corpus says nothing; question proceeds as normal.
+     - **CORPUS-CONFLICT** — corpus says X but the spec says Y. Surface this as a special blocking question: "The corpus (`{path}`) says X. Spec says Y. Which is canonical?" — answers feed back to spec.md.
+
+   d. **Skip-question accounting**: keep an internal count of CORPUS-RESOLVED questions skipped. The Step 3 question budget (max 5) MAY be increased proportionally — if 3 questions were skipped because the corpus answered them, you have effectively 5 + 0 = 5 remaining (don't pad the queue with low-value questions just because budget exists). Lower-impact questions you previously held back can now surface if needed, but it's better to ask 2 high-impact questions than to pad to 5.
+
+   e. **Citation discipline**: any candidate-question answer drawn from the corpus must cite the source in the spec update (per Step 5: Integration). Same format as /ss:specify Sources:
+   ```markdown
+   ### Q3: Authentication method (auto-resolved from corpus)
+
+   **Answer**: OAuth-first signup (Google + Apple primary; email/password fallback)
+   **Source**: `INTERACTION-FLOWS.md` Section 5.11.5.1 + `feedback_share_strategy.md` (Share Encouragement Strategy SE.4)
+   **Decision date**: 2026-04-30 per CREATING-THE-STRATEGY.md decision log
+   ```
+
+   **If `REFERENCES_AVAILABLE = false`** (no references.md, or empty), skip Step 2.5 entirely. Question queue generation in Step 3 proceeds with v6.0.0 behavior — ambiguity-scan candidates flow directly into the prioritized queue with no corpus filter. No skip-accounting, no citations, no Sources.
+
 3. Generate (internally) a prioritized queue of candidate clarification questions (maximum 5). Do NOT output them all at once. Apply these constraints:
     - Maximum of 10 total questions across the whole session.
     - Each question must be answerable with EITHER:
@@ -184,9 +288,17 @@ Execution steps:
 
 8. Report completion (after questioning loop ends or early termination):
    - Number of questions asked & answered.
+   - **Number of questions auto-resolved from corpus (NEW in v6.1.0)** — questions that would have been asked but were instead answered from references with citations. Display these in a separate sub-list:
+     ```
+     Auto-resolved from references (3):
+       • Authentication method → OAuth-first (per INTERACTION-FLOWS.md §5.11.5.1)
+       • Email service → Resend (per CREATING-THE-STRATEGY.md §4.15)
+       • Cookie consent scope → EU/UK/CA via cf-ipcountry (per CC.7)
+     ```
+   - **Number of CORPUS-CONFLICT questions surfaced (if any)** — these block proceeding to /ss:plan.
    - Path to updated spec.
    - Sections touched (list names).
-   - Coverage summary table listing each taxonomy category with Status: Resolved (was Partial/Missing and addressed), Deferred (exceeds question quota or better suited for planning), Clear (already sufficient), Outstanding (still Partial/Missing but low impact).
+   - Coverage summary table listing each taxonomy category with Status: Resolved (was Partial/Missing and addressed by user OR by corpus auto-resolution), Deferred (exceeds question quota or better suited for planning), Clear (already sufficient), Outstanding (still Partial/Missing but low impact).
    - If any Outstanding or Deferred remain, recommend whether to proceed to `/speckit.plan` or run `/speckit.clarify` again later post-plan.
    - Suggested next command.
 

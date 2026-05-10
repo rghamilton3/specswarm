@@ -31,10 +31,11 @@ Initialize SpecSwarm in your project with interactive setup wizard.
 - Creates `quality-standards.md` with validation gates
 - Sets up `constitution.md` for project governance
 - Configures performance budgets
+- *(v6.1.0)* Auto-discovers spec corpus, reference codebases, and memory dirs; writes `references.md` for `/ss:specify` and `/ss:clarify` to consult
 
 **When to use:**
 - First-time project setup
-- Adding SpecSwarm to existing projects
+- Adding SpecSwarm to existing projects (especially those with existing PRDs / decision logs / legacy reference codebases)
 
 ---
 
@@ -367,6 +368,10 @@ Create detailed feature specification from natural language description.
 - Technical constraints
 - Dependencies
 
+**v6.1.0 — External Reference Corpus consultation:**
+
+When `.specswarm/references.md` is populated, `/ss:specify` reads every declared spec corpus path and memory directory before generating spec content. Corpus content is treated as canonical — quoted/paraphrased with citations (`per <path> §X`) rather than fabricated. Generated spec.md gains a `## Sources` section and an optional `references_consulted:` YAML frontmatter field. When references.md is absent, behavior is identical to v6.0.0.
+
 Called by: `build` (Step 2)
 
 ---
@@ -374,6 +379,10 @@ Called by: `build` (Step 2)
 ### `/ss:clarify`
 
 Ask up to 5 targeted clarification questions and encode answers into specification.
+
+**v6.1.0 — Corpus-aware question filtering:**
+
+When references.md is populated, each candidate clarification question is cross-checked against the corpus before being asked. Categories: **CORPUS-RESOLVED** (drop and inject corpus answer with citation), **CORPUS-PARTIAL** (keep but pre-load corpus-suggested options), **CORPUS-SILENT** (proceed normally), **CORPUS-CONFLICT** (blocking question — spec disagrees with corpus). Final report surfaces "Auto-resolved from references (N)" sub-list. When references.md is absent, behavior is identical to v6.0.0.
 
 Called by: `build` (Step 3)
 

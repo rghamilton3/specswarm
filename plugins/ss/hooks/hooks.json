@@ -1,5 +1,5 @@
 {
-  "description": "SpecSwarm hooks for continuous build execution, auto-initialization, orientation, constitutional enforcement, and quality checking",
+  "description": "SpecSwarm hooks for continuous build execution, auto-initialization, orientation, references verification, constitutional enforcement, and quality checking",
   "hooks": {
     "Setup": [
       {
@@ -17,6 +17,10 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/orientation-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/references-verify.sh"
           }
         ]
       }
