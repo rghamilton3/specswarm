@@ -161,3 +161,70 @@ ss_references_resolve_path() {
   # Relative — resolve against repo root
   echo "${repo_root}/${path}"
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v6.2.0: Memory file scanning
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Scan all declared memory directories for memory files matching SpecSwarm's
+# expected naming conventions. Echoes one absolute file path per line.
+#
+# Conventions matched (Claude Code memory system):
+#   feedback_*.md   — opinionated rules / preferences
+#   project_*.md    — project-state context
+#   reference_*.md  — cross-references to external systems
+#   user_*.md       — user-profile entries (role, expertise, etc.)
+#
+# Silent + empty output when references.md is missing OR has no memory dirs.
+# Symlinks are followed; non-existent dirs are skipped silently.
+ss_memory_scan_files() {
+  local dir
+  while IFS= read -r dir; do
+    [ -z "$dir" ] && continue
+    [ -d "$dir" ] || continue
+    # Only one level deep — memory dirs are flat by convention
+    find "$dir" -maxdepth 1 -type f \
+      \( -name "feedback_*.md" \
+      -o -name "project_*.md" \
+      -o -name "reference_*.md" \
+      -o -name "user_*.md" \) \
+      2>/dev/null
+  done < <(ss_references_memory_dirs) | sort -u
+}
+
+# Classify a memory filename by prefix. Echoes one of:
+#   feedback   — rules / preferences ("never X", "always Y", policy)
+#   project    — project-state context (decisions made, current phase, etc.)
+#   reference  — cross-references ("the auth code lives in X")
+#   user       — user-profile information
+#   other      — anything else (returns this for files that don't match)
+#
+# Used by the principle-extraction step to decide whether a memory file is
+# a likely PRINCIPLE source (feedback_*) or merely CONTEXT (project_*).
+ss_memory_classify_kind() {
+  local filename
+  filename="$(basename "$1" 2>/dev/null)"
+  case "$filename" in
+    feedback_*)  echo "feedback" ;;
+    project_*)   echo "project" ;;
+    reference_*) echo "reference" ;;
+    user_*)      echo "user" ;;
+    *)           echo "other" ;;
+  esac
+}
+
+# Count memory files by classification. Echoes TSV: kind<TAB>count
+# Useful for /ss:init UX ("Found N feedback files, M project files, K reference files…").
+ss_memory_count_by_kind() {
+  local file
+  declare -A counts=( [feedback]=0 [project]=0 [reference]=0 [user]=0 [other]=0 )
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    kind=$(ss_memory_classify_kind "$file")
+    counts[$kind]=$((${counts[$kind]:-0} + 1))
+  done < <(ss_memory_scan_files)
+
+  for kind in feedback project reference user other; do
+    printf "%s\t%d\n" "$kind" "${counts[$kind]:-0}"
+  done
+}
