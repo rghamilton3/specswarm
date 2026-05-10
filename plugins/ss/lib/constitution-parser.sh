@@ -1,15 +1,18 @@
 #!/bin/bash
-# SpecSwarm Constitution Parser (5.3.0)
+# SpecSwarm Constitution Parser (6.3.0)
 # Reads .specswarm/constitution.md, finds structured rule blocks, and emits
-# warning-only PostToolUse hooks under .specswarm/hooks/generated/.
+# PostToolUse hooks under .specswarm/hooks/generated/.
 #
 # Constitution authors opt in to a hook by adding a structured comment block
-# beneath the principle. Three formats are supported:
+# beneath the principle. Three formats are supported; each accepts an OPTIONAL
+# `severity:` field (default `warn`). When severity is `block`, the dispatcher
+# emits `{decision: "block", reason: ...}` instead of an approve+warning.
 #
 #   <!-- specswarm-rule: no-pattern -->
 #   <!-- path-glob: src/**/*.ts -->
 #   <!-- bad-pattern: console\.log\( -->
 #   <!-- summary: No console.log in production source files -->
+#   <!-- severity: warn -->
 #
 #   <!-- specswarm-rule: required-pattern -->
 #   <!-- path-glob: migrations/**/*.ts -->
@@ -21,9 +24,12 @@
 #   <!-- trigger-pattern: app\.(get|post|put|delete) -->
 #   <!-- pair-pattern: requireAuth -->
 #   <!-- summary: Route handlers must use requireAuth middleware -->
+#   <!-- severity: block -->
 #
-# All hooks are warning-only and never block. Anything not matching one of
-# these structured forms is logged as `principle_unhandled` and ignored.
+# severity: warn  — emits ⚠️  prefix; dispatcher returns approve+systemMessage
+# severity: block — emits 🚫 prefix; dispatcher returns decision=block+reason
+# Unknown severity values fall back to `warn` silently. Anything not matching
+# one of these structured forms is logged as `principle_unhandled` and ignored.
 
 __SS_CONST_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -144,7 +150,25 @@ generate_constitutional_hooks() {
     [ -z "$slug" ] && slug="rule-$RANDOM"
     local out_file="$out_dir/${slug}.sh"
 
-    # Skip if file already exists (preserve user edits and prior generations)
+    # Severity (v6.3.0). Default warn; unknown values fall back to warn silently.
+    local severity="${fields[severity]:-warn}"
+    case "$severity" in
+      warn|block) ;;
+      *) severity="warn" ;;
+    esac
+    local severity_prefix severity_label
+    if [ "$severity" = "block" ]; then
+      severity_prefix="🚫"
+      severity_label="Constitutional VIOLATION (block)"
+    else
+      severity_prefix="⚠️ "
+      severity_label="Constitutional warning"
+    fi
+
+    # Skip if file already exists (preserve user edits and prior generations).
+    # Note: changing severity in constitution.md does NOT regenerate; user must
+    # `rm` the stale hook file under .specswarm/hooks/generated/ to pick up the
+    # new severity.
     if [ -f "$out_file" ]; then
       skipped=$((skipped + 1))
       unset fields
@@ -158,11 +182,14 @@ generate_constitutional_hooks() {
             "PATH_GLOB=${fields[path-glob]}" \
             "BAD_PATTERN=${fields[bad-pattern]}" \
             "PRINCIPLE_TEXT=${summary}" \
-            "PRINCIPLE_SUMMARY=${summary}"
+            "PRINCIPLE_SUMMARY=${summary}" \
+            "SEVERITY=${severity}" \
+            "SEVERITY_PREFIX=${severity_prefix}" \
+            "SEVERITY_LABEL=${severity_label}"
           generated=$((generated + 1))
-          generated_list="$generated_list\n   ✓ $summary → ${slug}.sh"
+          generated_list="$generated_list\n   ✓ $summary → ${slug}.sh [${severity}]"
           if declare -f audit_log >/dev/null 2>&1; then
-            audit_log "constitutional_hook_generated" rule_type="no-pattern" slug="$slug" summary="$summary"
+            audit_log "constitutional_hook_generated" rule_type="no-pattern" severity="$severity" slug="$slug" summary="$summary"
           fi
         else
           unhandled=$((unhandled + 1))
@@ -177,11 +204,14 @@ generate_constitutional_hooks() {
             "PATH_GLOB=${fields[path-glob]}" \
             "REQUIRED_PATTERN=${fields[required-pattern]}" \
             "PRINCIPLE_TEXT=${summary}" \
-            "PRINCIPLE_SUMMARY=${summary}"
+            "PRINCIPLE_SUMMARY=${summary}" \
+            "SEVERITY=${severity}" \
+            "SEVERITY_PREFIX=${severity_prefix}" \
+            "SEVERITY_LABEL=${severity_label}"
           generated=$((generated + 1))
-          generated_list="$generated_list\n   ✓ $summary → ${slug}.sh"
+          generated_list="$generated_list\n   ✓ $summary → ${slug}.sh [${severity}]"
           if declare -f audit_log >/dev/null 2>&1; then
-            audit_log "constitutional_hook_generated" rule_type="required-pattern" slug="$slug" summary="$summary"
+            audit_log "constitutional_hook_generated" rule_type="required-pattern" severity="$severity" slug="$slug" summary="$summary"
           fi
         else
           unhandled=$((unhandled + 1))
@@ -197,11 +227,14 @@ generate_constitutional_hooks() {
             "TRIGGER_PATTERN=${fields[trigger-pattern]}" \
             "PAIR_PATTERN=${fields[pair-pattern]}" \
             "PRINCIPLE_TEXT=${summary}" \
-            "PRINCIPLE_SUMMARY=${summary}"
+            "PRINCIPLE_SUMMARY=${summary}" \
+            "SEVERITY=${severity}" \
+            "SEVERITY_PREFIX=${severity_prefix}" \
+            "SEVERITY_LABEL=${severity_label}"
           generated=$((generated + 1))
-          generated_list="$generated_list\n   ✓ $summary → ${slug}.sh"
+          generated_list="$generated_list\n   ✓ $summary → ${slug}.sh [${severity}]"
           if declare -f audit_log >/dev/null 2>&1; then
-            audit_log "constitutional_hook_generated" rule_type="required-pair" slug="$slug" summary="$summary"
+            audit_log "constitutional_hook_generated" rule_type="required-pair" severity="$severity" slug="$slug" summary="$summary"
           fi
         else
           unhandled=$((unhandled + 1))
