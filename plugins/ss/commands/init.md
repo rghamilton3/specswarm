@@ -638,70 +638,81 @@ d. **For each in-scope memory file**, use the `Read` tool to load its content. T
    - Project metadata (status, contacts, links)
    - Memory whose enforcement would require runtime semantics, not static-text matching
 
-e. **For each eligible memory file**, draft a principle in the constitution-hook format. Map to template:
+e. **For each eligible memory file**, draft a principle in the constitution-hook format the parser actually accepts (`lib/constitution-parser.sh`). Each rule block is a contiguous run of HTML comments, one `key: value` per line, with the rule type on the first line. Map to one of three types:
 
-   - **no-pattern-in-paths** — "X must never appear in files matching Y"
-     Example (from `feedback_trade_secrets.md`):
+   - **no-pattern** — "X must never appear in files matching Y"
+     Example (drafted from `feedback_trade_secrets.md`):
      ```markdown
      ### Trade-secret math is server-side only
-     <!-- specswarm:rule type=no-pattern-in-paths -->
-     - forbidden-pattern: `from\s+['"].*board-calculator`
-     - path-glob: `app/components/**`, `app/routes/**.client.*`, `app/lib/client/**`
-     - rationale: feedback_trade_secrets.md — calculation engine math must never reach the frontend bundle
-     <!-- /specswarm:rule -->
-     ```
 
-   - **required-import-in-files** — "Files matching Y must import/contain X"
-     Example (from a hypothetical `feedback_v2_reference_required.md`):
+     <!-- specswarm-rule: no-pattern -->
+     <!-- path-glob: app/components/** -->
+     <!-- bad-pattern: from\s+['"].*board-calculator -->
+     <!-- summary: Trade-secret math is server-side only -->
+     <!-- severity: block -->
+     ```
+     Rationale source: `feedback_trade_secrets.md` — calculation engine math must never reach the frontend bundle. Severity=block because leakage is unrecoverable.
+
+   - **required-pattern** — "Files matching Y must contain X"
+     Example (drafted from a hypothetical `feedback_v2_reference_required.md`):
      ```markdown
      ### v2 source mandatory for calc-engine work
-     <!-- specswarm:rule type=required-import-in-files -->
-     - required-pattern: `// v2-ref: customcult2/`
-     - path-glob: `app/engine/**`
-     - rationale: feedback_v2_reference_required.md — calc engine port delegates to v2 PHP as canonical
-     <!-- /specswarm:rule -->
-     ```
 
-   - **required-pair-in-additions** — "When pattern A appears, pattern B must also appear in the same file"
-     Example (from `project_admin_audit_log.md`):
+     <!-- specswarm-rule: required-pattern -->
+     <!-- path-glob: app/engine/** -->
+     <!-- required-pattern: // v2-ref: customcult2/ -->
+     <!-- summary: v2 source mandatory for calc-engine work -->
+     ```
+     Rationale source: `feedback_v2_reference_required.md` — calc engine port delegates to v2 PHP as canonical. Severity default (warn) — missing tag is fixable, not a leak.
+
+   - **required-pair** — "When pattern A appears, pattern B must also appear in the same file"
+     Example (drafted from `project_admin_audit_log.md`):
      ```markdown
      ### Admin writes require audit_log entry
-     <!-- specswarm:rule type=required-pair-in-additions -->
-     - trigger-pattern: `db\.(insert|update|delete)`
-     - pair-pattern: `audit_log\(`
-     - path-glob: `app/routes/admin/**`
-     - rationale: project_admin_audit_log.md — every admin mutation logs admin_audit_log row
-     <!-- /specswarm:rule -->
-     ```
 
-f. **Surface each draft principle to the user** via **AskUserQuestion**:
+     <!-- specswarm-rule: required-pair -->
+     <!-- path-glob: app/routes/admin/** -->
+     <!-- trigger-pattern: db\.(insert|update|delete) -->
+     <!-- pair-pattern: audit_log\( -->
+     <!-- summary: Admin writes require audit_log entry -->
+     <!-- severity: block -->
+     ```
+     Rationale source: `project_admin_audit_log.md` — every admin mutation logs admin_audit_log row. Severity=block because silent audit-log skipping is a compliance gap.
+
+   **Severity selection heuristic (v6.3.0).** Default to `severity: warn` (or omit the field). Propose `severity: block` when the source memory entry contains any of these gravity signals: `must NEVER`, `trade secret`, `compliance`, `audit`, `leak`, `pii`, `secret`, `forbidden`, `unrecoverable`, or explicit language indicating that a false negative produces irreversible damage. When in doubt, propose warn — the user can re-rank to block in step f below.
+
+f. **Surface each draft principle to the user** via **AskUserQuestion**, including a severity choice:
 
 ```
 Question: "Add this principle to constitution.md?"
 Header: "Principle N/M"
 Options:
-  1. "Yes, add as drafted"
-     Description: "[show the principle title + first line of rationale]"
-  2. "Yes, but I'll edit later"
-     Description: "Add now; user will hand-edit the regex / path-glob to match their conventions"
-  3. "No, skip this one"
-     Description: "Memory file is too prose-y / not enforceable / I'll keep this as memory only"
+  1. "Yes — add at proposed severity (<warn|block>)"
+     Description: "[show principle title + drafted severity + first line of rationale]"
+  2. "Yes — but flip severity to <opposite>"
+     Description: "Same principle, opposite severity. Pick this if you want stronger/weaker enforcement than the heuristic chose."
+  3. "Yes — but I'll edit later"
+     Description: "Add at proposed severity; you'll hand-edit the regex/glob/severity in constitution.md after init."
+  4. "No, skip this one"
+     Description: "Memory file is too prose-y / not enforceable / I'll keep this as memory only."
 ```
 
-Track each accept/reject. Cap proposals at **10 principles per init** to keep the session bounded.
+Track each accept/reject + severity choice. Cap proposals at **10 principles per init** to keep the session bounded.
 
 g. **For each accepted principle**, append it to `.specswarm/constitution.md` under a section header `## Imported from memory (auto-proposed YYYY-MM-DD)`. Don't overwrite existing sections.
 
-h. **Re-run constitutional hook generation** so the newly-imported principles get their PostToolUse warning hooks generated. The same `generate_constitutional_hooks` function from Step 4 is called again — it's idempotent and will regenerate hooks for the new principles only.
+h. **Re-run constitutional hook generation** so the newly-imported principles get their PostToolUse hooks generated. The same `generate_constitutional_hooks` function from Step 4 is called again — it's idempotent and only creates hooks for principles that don't already have one.
 
 ```bash
 if [ -f "$PLUGIN_DIR_SS_MEM/lib/constitution-parser.sh" ]; then
   source "$PLUGIN_DIR_SS_MEM/lib/constitution-parser.sh"
   generate_constitutional_hooks "${REPO_ROOT}/.specswarm/constitution.md" "${REPO_ROOT}/.specswarm/hooks/generated"
   echo ""
-  echo "✅ Imported principles → regenerated constitutional warning hooks"
+  echo "✅ Imported principles → generated constitutional hooks (warn + block)"
 fi
 ```
+
+**Note on severity changes:** the generator preserves existing hook files (so user edits aren't clobbered). If you change a principle's severity in `constitution.md` after import, delete the corresponding file under `.specswarm/hooks/generated/` to force regeneration with the new severity.
 
 i. **Display summary**:
 ```bash
