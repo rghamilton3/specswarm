@@ -222,6 +222,6 @@ See [README: Version History](../README.md#version-history) for release notes an
 
 ---
 
-**SpecSwarm v6.0.0** - Documentation index
+**SpecSwarm v6.3.0** - Documentation index
 
 *Navigate confidently through SpecSwarm's comprehensive documentation.*
