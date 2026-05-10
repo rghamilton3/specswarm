@@ -1,4 +1,4 @@
-# SpecSwarm v6.2.0
+# SpecSwarm v6.2.1
 
 Spec-driven development for Claude Code. Build → Fix → Modify → Ship, with quality gates, multi-agent orchestration, and version-controlled specs.
 
