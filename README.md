@@ -1,4 +1,4 @@
-# SpecSwarm v6.0.0
+# SpecSwarm v6.1.0
 
 Spec-driven development for Claude Code. Build → Fix → Modify → Ship, with quality gates, multi-agent orchestration, and version-controlled specs.
 
@@ -60,6 +60,8 @@ Out of scope for this build:
 
 The clearer the spec document, the less back-and-forth during clarification.
 
+**v6.1.0 makes this even better.** If your project has existing PRDs, design docs, decision logs, or a legacy/prototype reference codebase, declare them in `.specswarm/references.md` (auto-populated by `/ss:init`) and SpecSwarm will read them automatically during `/ss:specify` and `/ss:clarify` — quoting from corpus content with citations instead of fabricating, and skipping clarification questions whose answers are already locked in. See [CHANGELOG.md](./CHANGELOG.md) for details.
+
 ---
 
 ## Inside the 5 commands
@@ -76,12 +78,13 @@ A lot happens automatically inside each command. You don't invoke these phases d
 6. **MCP discovery & registration** — adds Context7, Playwright, Postgres, etc., based on detected stack
 7. **Project subagent seeding** — generates project-specific implementer agents matched to your stack
 8. **Constitutional warning hooks** — turns mechanically-checkable principles into PostToolUse warnings
+9. **References discovery** *(v6.1.0)* — auto-discovers spec corpus markdown docs, sibling reference codebases (stem-similarity filter), and Claude Code memory directories; interactive picker writes `.specswarm/references.md`
 
 ### Inside `/ss:build`
 
 1. **Feature branch creation** — branches from your current branch
-2. **Specification generation** — turns your prompt into a structured, version-controlled spec
-3. **Clarification** — asks targeted questions on ambiguous areas (skipped in `--quick` mode)
+2. **Specification generation** — turns your prompt into a structured, version-controlled spec; *(v6.1.0)* when `.specswarm/references.md` is populated, reads spec corpus + memory dirs and extracts canonical content with citations instead of fabricating
+3. **Clarification** — asks targeted questions on ambiguous areas (skipped in `--quick` mode); *(v6.1.0)* skips questions auto-resolved from corpus and surfaces `CORPUS-CONFLICT` markers when feature description disagrees with corpus
 4. **Implementation plan** — architecture, file layout, data flow, technology choices
 5. **Task breakdown** — dependency-ordered tasks with parallel-safe markers
 6. **Project subagent refresh** — adds agents for any new recurring task types in this build
