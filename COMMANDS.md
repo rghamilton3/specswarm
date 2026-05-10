@@ -32,7 +32,8 @@ Initialize SpecSwarm in your project with interactive setup wizard.
 - Sets up `constitution.md` for project governance
 - Configures performance budgets
 - *(v6.1.0)* Auto-discovers spec corpus, reference codebases, and memory dirs; writes `references.md` for `/ss:specify` and `/ss:clarify` to consult
-- *(v6.2.0)* Scans declared memory dirs for `feedback_*.md` rules; proposes constitution principles in hook-enforceable format; user accepts/rejects each; accepted principles append to `constitution.md` and trigger PostToolUse warning hook regeneration
+- *(v6.2.0)* Scans declared memory dirs for `feedback_*.md` rules; proposes constitution principles in hook-enforceable format; user accepts/rejects each; accepted principles append to `constitution.md` and trigger PostToolUse hook regeneration
+- *(v6.3.0)* Each proposed principle gets a `severity:` field (warn | block); gravity signals in source memory (`must NEVER`, `trade secret`, `compliance`, `leak`, `pii`, etc.) auto-propose `severity: block` — the dispatcher returns `decision: block` on violation so Claude reverts/fixes instead of just being warned. Also fixes a v5.3.0 path-glob bug that had silently prevented every relative-form glob from firing in production
 
 **When to use:**
 - First-time project setup
@@ -563,4 +564,4 @@ The following commands were removed and absorbed as flags:
 
 ---
 
-**SpecSwarm v6.0.0** - Complete software development toolkit
+**SpecSwarm v6.3.0** - Complete software development toolkit

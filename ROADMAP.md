@@ -1,0 +1,84 @@
+# SpecSwarm Roadmap
+
+Ranked future improvements with implementation sketches. Captured from the 2026-05-08/10 mentor-session SpecSwarm design discussion. Each improvement was scored on (a) impact on building real projects, (b) generalizability to future SS users, (c) implementation tractability.
+
+The architectural principle: **lean core, optional plugins on top**. The core (`ss`) provides primitives — config schema, hook framework, build orchestration, agent generation. Specialized opinionated workflows belong in companion plugins.
+
+## Shipped
+
+### ✅ #1 External Reference Corpus → v6.1.0 (2026-05-10)
+
+When `.specswarm/references.md` is populated, `/ss:specify` consults declared spec corpus paths + reference codebases + memory dirs before generating spec content. `/ss:clarify` skips questions already answered in the corpus. SessionStart hook verifies reference codebases. Zero behavior change when references.md is absent.
+
+### ✅ #2 Memory-Driven Principle Import → v6.2.0 (2026-05-10)
+
+`/ss:init` Step 4.5 scans memory dirs (per references.md), classifies files (`feedback_*` / `project_*` / `reference_*` / `user_*`), proposes constitution principles in the mechanical hook format, asks user to accept/reject each. Accepted principles append to constitution.md and trigger PostToolUse warning hook regeneration. Decision-log auto-import was DROPPED from #2 scope — decision logs are already consumed via #1's spec corpus consultation.
+
+### ❌ #2.1 Grandparent Discovery → v6.2.1 → REVERTED
+
+Patch attempted to scan grandparent dir for siblings + spec docs + parent-workspace memory key. Turned out to be dual-directory-pattern-specific (Marty's mentor + build layout) rather than generally useful. Reverted at d8e7218 because most SS users don't build inside a mentor workspace and the patch added machinery that benefits no one in the typical single-repo case. **Lesson:** auto-discovery additions need to validate against the typical single-repo case before shipping.
+
+### ✅ #4 Constitution Severity Levels → v6.3.0 (2026-05-10)
+
+`constitution.md` rule blocks now accept an optional `severity: warn | block` field (default warn). Block-severity hooks emit a `🚫` marker on violation; the dispatcher routes to `{decision: "block", reason: ...}` so Claude reverts/fixes instead of just receiving a warning. v6.2.0's memory-driven principles now have the enforcement teeth their motivating examples (trade-secret leakage, audit-log compliance) actually require. Backward-compatible — every existing warn-only rule generates byte-identical output to v6.2.0.
+
+Shipped ahead of #3 because #4 is what completes the v6.2.0 arc (see-encode-enforce). Two pre-existing bugs surfaced during dogfooding and were fixed in the same release:
+
+1. **v5.3.0 path-glob bug** — hook templates compared the path-glob against the absolute `FILE_PATH` the dispatcher prepended REPO_ROOT to. No relative-form glob ever matched in production; no warning had ever fired. Templates now normalize against REPO_ROOT first.
+2. **v6.2.0 Step 4.5 example syntax** — example rule blocks used `<!-- specswarm:rule type=... -->` syntax that the parser doesn't accept. Memory-imported principles drafted from those examples would have been logged as `principle_unhandled` and silently dropped. Corrected to the parser-accepted form.
+
+**Lesson:** v6.2.0's "smoke-tested" claim was hollow — the smoke test never actually exercised the dispatcher end-to-end. Going forward, "smoke-tested" should mean "synthetic constitution.md → generated hook → dispatcher JSON → expected decision route," not just "loader function returned non-empty."
+
+## Pending — Core SS
+
+### #3 Project-Level Phases (medium-high impact, medium implementation)
+
+**Gap:** SS is feature-oriented (one branch per `/ss:build`). Real projects beyond ~5 features have implicit phases. No tracking primitive for "Phase 2 must complete before Phase 3" or "this feature contributes to which phase."
+
+**Implementation sketch:**
+- `.specswarm/phases.md` — markdown config defining phase boundaries, acceptance criteria, prerequisites
+- `.specswarm/phases-state.json` — tracks which features belong to which phase
+- `/ss:phase status` — shows current phase, features in flight, gates pending
+- `/ss:phase advance` — closes current phase (requires acceptance criteria met), opens next
+- `/ss:build "feature description" --phase 2` — attributes feature to phase 2
+- Stop hook extension: when feature build completes, check if it satisfies any phase acceptance criteria
+
+**Versioning:** v6.4.0 minor (backward-compatible — projects without phases.md behave as today).
+
+**Process note:** #3 is the right moment for SS to dogfood SS — design it through `/ss:specify` → `/ss:clarify` → `/ss:plan` → `/ss:tasks` end-to-end before writing code. That surfaces design questions (strict-DAG vs tag-style phases, feature-number vs branch-name references, free-form vs checklist acceptance criteria) and validates the corpus-consultation pipeline at the same time.
+
+## Pending — Companion Plugins (don't bloat core)
+
+### `ss-tdd-strict`
+
+Adds a test-first phase between `/ss:tasks` and `/ss:implement`. Quality gate requires test/source file pairs. New constitutional-hook template: `test-exists-for-source` (warns if `app/foo.ts` has no `test/foo.test.ts`). Useful but opinionated — plugin, not core.
+
+### `ss-perf`
+
+Lighthouse CI integration. Chrome DevTools MCP wired into `/ss:validate`. Web Vitals quality gate addition. Per-route LCP/TBT/CLS budget enforcement. Web-only; not all SS users build web. Plugin, not core.
+
+### `ss-security-review`
+
+Runs `silent-failure-hunter` + secret scanner (gitleaks, truffleHog) + dependency audit (npm audit, pip audit) on every `/ss:ship`. Ops-heavy projects benefit; small projects don't need it. Plugin, not core.
+
+### `ss-mentor-builder`
+
+Formalizes the dual-workspace pattern (mentor doc + builder code in separate sessions, sync command). Useful for spec-heavy projects with parent-dir-living spec corpus. Specifically what v6.2.1 attempted in core; should be a plugin instead so the core stays unbiased.
+
+## Architectural principles for future work
+
+1. **Validate auto-discovery against single-repo case before shipping.** v6.2.1 violated this — the dual-directory bias wasn't caught until dogfooding.
+2. **Opt-in over opt-out.** New features should be guarded by config-file presence (references.md, phases.md) so they're invisible to users who don't configure them.
+3. **LLM-driven steps are fine but make the bash boundary clean.** /ss:init Step 3.5 and Step 4.5 are LLM-heavy in the middle (AskUserQuestion loops, principle drafting) but have crisp bash discovery at the start and crisp bash write at the end. Future steps should follow this shape.
+4. **Schema in markdown.** Constitution, tech-stack, quality-standards, references — all markdown with key:value bullet lists. Consistent. Don't introduce YAML/TOML/JSON config files for new features.
+5. **Lean core, optional companion plugins.** Don't bloat `ss` with workflow opinions that only some users want.
+6. **"Smoke-tested" means end-to-end.** v6.3.0 surfaced two bugs (path-glob, Step 4.5 examples) that prior "smoke-tested" claims missed because the tests exercised a single layer in isolation. A real smoke test crosses every boundary the production code crosses — for constitutional hooks, that means synthetic constitution.md → generated hook → dispatcher → JSON envelope.
+
+## Validation criteria for each pending improvement
+
+Before shipping #3, validate against three real projects:
+- A typical single-repo project (e.g., a small SaaS)
+- A monorepo (e.g., a workspace with packages/)
+- A spec-heavy enterprise project (e.g., Marty's customcult-v3)
+
+If a feature helps the first two and is neutral for the third, ship. If it only helps the third, build it as a companion plugin instead.

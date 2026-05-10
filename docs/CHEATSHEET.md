@@ -2,7 +2,7 @@
 
 **Fast reference for common SpecSwarm commands and workflows.**
 
-**Version**: v6.0.0 | **Commands**: 10 visible + 11 internal | **Language-Agnostic**
+**Version**: v6.3.0 | **Commands**: 10 visible + 11 internal | **Language-Agnostic**
 
 ---
 
@@ -17,7 +17,7 @@
 
 # Verify
 /plugin list
-# Should show: ss v6.0.0
+# Should show: ss v6.3.0
 ```
 
 ---
@@ -367,12 +367,15 @@ project-root/
 ## Version Information
 
 This cheat sheet is for:
-- **SpecSwarm**: v6.0.0
+- **SpecSwarm**: v6.3.0
   - Compacted from 32/35 commands to 21 (10 visible + 11 internal)
   - Natural language commands (build, fix, ship, modify)
   - Language-agnostic (works with any language Claude supports)
   - Autonomous execution (no mid-phase pausing)
   - Parent branch safety
+  - External Reference Corpus consultation (`/ss:specify` + `/ss:clarify` read declared spec corpus + memory dirs) — v6.1.0
+  - Memory-Driven Principle Import (`/ss:init` proposes constitution principles from `feedback_*.md`) — v6.2.0
+  - Constitution Severity Levels (`severity: warn | block` field; block rules return `decision: block` on violation) — v6.3.0
 
 Check your version:
 ```bash
