@@ -438,6 +438,25 @@ echo ""
 echo "Feature: $FEATURE_DESC"
 echo "Branch: $(git rev-parse --abbrev-ref HEAD)"
 echo ""
+
+# References banner (NEW in v6.1.0): surface external authoritative sources
+# that /ss:specify and /ss:clarify will consult during this build.
+PLUGIN_DIR_SS_BANNER="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOADER_BANNER="${PLUGIN_DIR_SS_BANNER}/lib/references-loader.sh"
+if [ -f "$LOADER_BANNER" ]; then
+  # shellcheck disable=SC1090
+  source "$LOADER_BANNER"
+  if ss_references_exist 2>/dev/null; then
+    SPEC_COUNT=$(ss_references_spec_corpus_paths | wc -l)
+    CODEBASE_COUNT=$(ss_references_codebases | wc -l)
+    MEMORY_COUNT=$(ss_references_memory_dirs | wc -l)
+    echo "🔗 References: $SPEC_COUNT spec doc(s), $CODEBASE_COUNT reference codebase(s), $MEMORY_COUNT memory dir(s)"
+    echo "   /ss:specify will extract from corpus instead of fabricating."
+    echo "   /ss:clarify will skip questions already answered in corpus."
+    echo ""
+  fi
+fi
+
 if [ "$QUICK_MODE" = "true" ]; then
 echo "⚡ QUICK MODE - Streamlined execution"
 echo ""
