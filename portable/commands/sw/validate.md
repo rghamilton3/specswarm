@@ -64,9 +64,11 @@ fi
 echo "📁 Project: $PROJECT_PATH"
 echo ""
 
-# Detect web project and Chrome DevTools MCP availability
-PLUGIN_DIR="/home/marty/code-projects/specswarm/plugins/speclabs"
-SPECSWARM_PLUGIN_DIR="/home/marty/code-projects/specswarm/plugins/specswarm"
+# Detect web project and Chrome DevTools MCP availability.
+# (portable/ is DEPRECATED — paths below are placeholders kept so the file
+# still parses; the corresponding plugin libraries no longer ship.)
+PLUGIN_DIR="${PLUGIN_DIR:-./plugins/speclabs}"
+SPECSWARM_PLUGIN_DIR="${SPECSWARM_PLUGIN_DIR:-./plugins/specswarm}"
 
 if [ -f "$SPECSWARM_PLUGIN_DIR/lib/web-project-detector.sh" ]; then
   source "$SPECSWARM_PLUGIN_DIR/lib/web-project-detector.sh"

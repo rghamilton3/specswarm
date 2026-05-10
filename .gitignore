@@ -1,4 +1,18 @@
+# Editor / OS noise
 .idea
+.vscode/
 .DS_Store
+*.swp
+*.swo
+
+# Claude Code per-user state (paths, permissions — never commit)
+.claude/settings.local.json
+
+# Plugin runtime state (per-project, not part of the published plugin)
 .specswarm/
+.remember/
 plugins/specswarm/memory/
+
+# Build / package noise
+node_modules/
+*.log
