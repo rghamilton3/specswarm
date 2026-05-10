@@ -11,8 +11,16 @@ FILE_PATH="${1:-}"
 [ -z "$FILE_PATH" ] && exit 0
 [ ! -f "$FILE_PATH" ] && exit 0
 
-# Path filter — only check files whose path matches this glob
+# Normalize path against repo root so the path-glob can use the relative form
+# (e.g., `src/**/*.ts` rather than a machine-specific absolute path).
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 case "$FILE_PATH" in
+  "$REPO_ROOT"/*) REL_PATH="${FILE_PATH#"$REPO_ROOT"/}" ;;
+  *)              REL_PATH="$FILE_PATH" ;;
+esac
+
+# Path filter — only check files whose repo-relative path matches this glob
+case "$REL_PATH" in
   __PATH_GLOB__) ;;
   *) exit 0 ;;
 esac

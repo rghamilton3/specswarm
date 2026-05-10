@@ -1,8 +1,10 @@
 #!/bin/bash
-# SpecSwarm Constitution Dispatcher (5.3.0)
+# SpecSwarm Constitution Dispatcher (6.3.0)
 # PostToolUse hook for Edit|MultiEdit|Write.
 # Iterates .specswarm/hooks/generated/*.sh and runs each with the changed file path.
-# Aggregates warnings into systemMessage. Always returns approve — never blocks.
+# Routes hook output by severity marker:
+#   🚫 line  → decision=block + reason (Claude is told to revert/fix)
+#   ⚠️  line → decision=approve + systemMessage (Claude is informed but proceeds)
 # Bypasses entirely (zero overhead) if .specswarm/hooks/generated/ doesn't exist.
 
 set -e
@@ -42,7 +44,12 @@ fi
 # Hard cap on dispatcher work to avoid slowing down edits
 TIMEOUT_SECONDS=2
 
-# Run each generated hook and collect warnings (stderr lines starting with ⚠️)
+# Run each generated hook and bucket output by severity marker.
+# Hooks emit one of two prefixes on the first stderr line:
+#   🚫 → block-severity violation (PostToolUse decision=block + reason)
+#   ⚠️  → warn-severity (PostToolUse decision=approve + systemMessage)
+BLOCKS=""
+BLOCK_COUNT=0
 WARNINGS=""
 WARNING_COUNT=0
 
@@ -51,27 +58,35 @@ for hook in "$GENERATED_DIR"/*.sh; do
   [ -x "$hook" ] || chmod +x "$hook" 2>/dev/null || true
 
   HOOK_OUTPUT=$(timeout "$TIMEOUT_SECONDS" bash "$hook" "$FILE_PATH" 2>&1 1>/dev/null || true)
+  [ -z "$HOOK_OUTPUT" ] && continue
 
-  if [ -n "$HOOK_OUTPUT" ]; then
+  if echo "$HOOK_OUTPUT" | head -n1 | grep -q "🚫"; then
+    BLOCKS="${BLOCKS}${HOOK_OUTPUT}\n"
+    BLOCK_COUNT=$((BLOCK_COUNT + 1))
+  else
     WARNINGS="${WARNINGS}${HOOK_OUTPUT}\n"
     WARNING_COUNT=$((WARNING_COUNT + 1))
   fi
 done
 
-# Audit log + emit systemMessage
-if [ -n "$WARNINGS" ]; then
-  # Source audit-logger if available
-  if [ -f "${REPO_ROOT}/.specswarm/.." ] || [ -f "$(dirname "$0")/../lib/audit-logger.sh" ]; then
-    AUDIT_LIB="$(dirname "$0")/../lib/audit-logger.sh"
-    if [ -f "$AUDIT_LIB" ]; then
-      # shellcheck disable=SC1090
-      source "$AUDIT_LIB"
-      if declare -f audit_log >/dev/null 2>&1; then
-        audit_log "constitutional_warning" file="$FILE_PATH" warning_count="$WARNING_COUNT"
-      fi
+# Audit log if available
+AUDIT_LIB="$(dirname "$0")/../lib/audit-logger.sh"
+if [ -f "$AUDIT_LIB" ]; then
+  # shellcheck disable=SC1090
+  source "$AUDIT_LIB" 2>/dev/null || true
+  if declare -f audit_log >/dev/null 2>&1; then
+    if [ "$BLOCK_COUNT" -gt 0 ] || [ "$WARNING_COUNT" -gt 0 ]; then
+      audit_log "constitutional_violations" file="$FILE_PATH" block_count="$BLOCK_COUNT" warning_count="$WARNING_COUNT" 2>/dev/null || true
     fi
   fi
+fi
 
+# Decision routing: any block → decision=block (warnings folded into reason);
+# warnings-only → decision=approve+systemMessage; nothing → silent approve.
+if [ "$BLOCK_COUNT" -gt 0 ]; then
+  REASON=$(printf "%b%b" "$BLOCKS" "$WARNINGS")
+  jq -n -c --arg msg "$REASON" '{decision: "block", reason: $msg}'
+elif [ "$WARNING_COUNT" -gt 0 ]; then
   jq -n -c --arg msg "$(printf "%b" "$WARNINGS")" '{decision: "approve", systemMessage: $msg}'
 else
   echo '{"decision": "approve"}'
