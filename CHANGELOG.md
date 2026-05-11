@@ -5,6 +5,56 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.4.0] - 2026-05-10 - `/ss:init` Reconciliation Refactor + Sufficiency Checks
+
+**`/ss:init` is now safe to re-run mid-development AND handles pre-existing hand-authored guides.** Previously, the command was a one-shot installer — re-running on a project with hand-edited guides silently overwrote developer content, and any pre-existing guide that didn't match SpecSwarm's machine-readable shape was treated as opaque (e.g., a prose-only `constitution.md` with no rule blocks produced no enforcement; a freeform `tech-stack.md` made `/ss:build` unable to detect drift). The command now performs **reconciliation** (read existing + current state, surface drift, accept deltas) AND **sufficiency evaluation** (detect guides SpecSwarm can't fully consume, offer augment / reset / keep per file).
+
+### Added
+
+- **Reconciliation mode** — on re-run, `/ss:init` reads existing guides as a source of truth alongside project state. Sticky defaults pre-fill prompts with existing values; drift between declared and detected surfaces an explicit "which is canonical?" prompt.
+- **Sufficiency check (Step 1.6)** — evaluates each existing guide against SpecSwarm's machine-readable expectations. Detects four insufficiency cases: `constitution.md` without `<!-- specswarm-rule: ... -->` blocks (no PostToolUse enforcement possible); `tech-stack.md` without canonical structure (`/ss:build` can't enforce drift); `quality-standards.md` without YAML threshold keys (`/ss:ship` falls back to built-in defaults); `references.md` outside canonical schema (`/ss:specify` can't consult it). Surfaces per-file `AskUserQuestion` with three modes: **augment in place** (keep content, prepend canonical skeleton), **reset** (regenerate from template, backup already saved), **keep** (no changes this run, ask again next time).
+- **Augment helper `ss_augment_with_skeleton`** — non-destructive: prepends a date-stamped banner, the canonical skeleton, and a `## Pre-existing Content` section wrapping the original file in `<!-- ss:user-additions -->`. Idempotent (returns exit 2 if already augmented).
+- **Constitution skeleton template** at `plugins/ss/templates/constitution.skeleton.md` — minimal scaffold with one example of each rule type (`no-pattern`, `required-pair`, `required-pattern`) plus `severity` field demos.
+- **`<!-- ss:user-additions -->` blocks** — developer-authored content inside these markers is preserved verbatim across re-runs. Added to `tech-stack.md`, `quality-standards.md`, and `conventions.md` templates. Matched by ordinal position.
+- **`--reset` flag** — explicit escape hatch for "discard existing guides and regenerate from scratch." Backup is still taken.
+- **Unconditional snapshot** — every `/ss:init` run backs up all `.specswarm/*.md` files to `.specswarm/.backup/<TS>/` before any modification. No user prompt; reconciliation is safe by default.
+- **`plugins/ss/lib/guide-parsers.sh`** — new helper library exposing `ss_parse_tech_stack`, `ss_parse_quality_standards`, `ss_preserve_user_sections`, the four `ss_check_*_sufficient` functions, and `ss_augment_with_skeleton`.
+- **Step 1.5: Parse existing guides** — new pipeline stage that loads `EXISTING_TECH_STACK[*]`, `EXISTING_QUALITY[*]`, `EXISTING_HAS_REFERENCES`, and `EXISTING_HAS_CONSTITUTION` for downstream reconciliation branches.
+- **Per-file MODE flags** — `CONSTITUTION_MODE` / `TECH_STACK_MODE` / `QUALITY_MODE` / `REFERENCES_MODE` are set by Step 1.6 and consulted by Steps 3.5 / 4 / 5 / 6 to choose between four behaviors per file: `normal` (reconcile), `augment` (prepend canonical, preserve content), `reset` (fresh-init), `keep` (skip entirely).
+- **Stale-marker flagging** — `references.md` paths that no longer exist on disk and `constitution.md` rule-block globs that match zero files in the repo get `<!-- stale: ... YYYY-MM-DD -->` HTML comments. Entries are *never* deleted; the developer decides cleanup.
+- **Reconciliation summary** — final Step 7 banner distinguishes fresh init from reconciliation and reports stale-marker counts.
+
+### Fixed
+
+- **`references.md` invisible to existence check** — Step 1 only probed three files (constitution, tech-stack, quality-standards) and missed `references.md`. On re-run with any auto-discovery candidate accepted, the file was silently truncated. Now probes every `.specswarm/*.md`.
+- **Missing templates causing near-empty outputs** — `tech-stack.template.md` and `quality-standards.template.md` were deleted in commit `93fa9e3` (v6.0.0 plugin restructure) and never restored. Steps 5 and 6 still `cat`-ed the dead paths, so `OUTPUT` was empty and the placeholder substitution did nothing. Templates restored to `plugins/ss/templates/` with section markers added.
+- **Latent `[VERSION]` placeholder collision** — the recovered tech-stack template used the same `[VERSION]` token for framework / language / build-tool / test versions, so a single substitution clobbered them all. Each field now has a distinct placeholder.
+- **Timestamp race in backup block** — twin `$(date +%Y%m%d-%H%M%S)` calls could produce different timestamps if the second crossed a second boundary, causing `cp` to write into a non-existent directory. Captured once into `BACKUP_TS`.
+- **Duplicate "Step 6.5" section label** — convention analysis and subagent seeding both used "Step 6.5". Subagent seeding renumbered to "Step 6.8".
+- **`/ss:constitution` wholesale overwrite on re-run** — Step 4 unconditionally invoked `/ss:constitution`, which writes "(overwrite)" per its own doc, losing user-authored content. Now skipped when `constitution.md` already exists; memory-driven proposals append only.
+
+### Breaking
+
+- **"Update existing files" / "Backup and recreate" / "Cancel" prompt removed.** The Step 1 prompt mapped a one-shot install model that no longer fits the command's intent. Backups now happen unconditionally; reconciliation runs by default; `--reset` replaces the "Backup and recreate" semantic. Cancel: just don't run the command, or Ctrl+C — no destructive operation happens until past Step 1.
+- **Constitution.md is no longer rewritten by `/ss:init` when it already exists.** Direct invocation of `/ss:constitution` retains the current overwrite behavior (out of scope for this PR; tracked as follow-up).
+
+### Out of scope (follow-ups)
+
+- Standalone `/ss:constitution` refactor to preserve user content.
+- Auto-detecting code-pattern violations against existing constitution rule blocks (we only flag stale globs).
+- Real markdown-AST parser for the guide files (current line-based parsing is sufficient given the `<!-- ss:user-additions -->` convention).
+
+### Smoke-tested
+
+- Parser round-trip on rendered template: all 7 substituted fields parse cleanly, integration-test version correctly skipped when empty.
+- `ss_preserve_user_sections` on synthetic old/new file pair: auto-content refreshes, user-additions blocks preserved verbatim, ordinal matching works across multiple blocks per file.
+- **Sufficiency check on prose-only constitution + freeform tech-stack + prose-thresholds quality + flat-URL references**: all four insufficiency cases detected with helpful reason messages.
+- **`ss_augment_with_skeleton` end-to-end**: prose-only constitution.md → augment → contains canonical skeleton + preserves original principles in `Pre-existing Content` block → re-runs of sufficiency check pass.
+- **Idempotency**: second augment call on already-augmented file returns exit 2; no double-wrapping.
+- Static verification of `init.md`: 0 stale `plugins/specswarm/templates/` refs, 1 `Step 6.5` (collision fixed), 1 `BACKUP_TS=$(date` capture (race fixed), 44 mode-flag references across the file.
+
+---
+
 ## [6.3.0] - 2026-05-10 - Constitution Severity Levels
 
 **Constitutional principles can now block, not just warn.** Each rule block in `constitution.md` accepts an optional `severity: warn | block` field (default `warn`, fully backward-compatible). When a `severity: block` rule fires, the PostToolUse dispatcher returns `{decision: "block", reason: ...}` instead of `{decision: "approve", systemMessage: ...}` — Claude is told the action was wrong and provides reverting/fixing feedback rather than just being informed. This closes the gap that v6.2.0's memory-driven principles left open: the canonical motivating example ("trade-secret math must NEVER reach the frontend") needs to *stop* a violation, not just narrate it.
