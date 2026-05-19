@@ -6,6 +6,8 @@
 
 **Decision**: Design for parallel; verify empirically at the start of Phase 1B with a throwaway probe (two trivial `Agent` calls in one message, timed). If parallel works, proceed. If sequential, switch to sequential dispatch (still saves parent-context tokens, loses only wall-clock parallelism).
 
+**Status (2026-05-18)**: **Verified parallel.** Probe A and probe B (each `sleep 3` between two `date +%s.%N` reads) ran with overlapping spans — A=[112.65 → 115.66], B=[113.97 → 116.97]. B started 1.32s after A (harness-side per-agent provisioning) but well before A finished. If dispatch were sequential, B.START would be ≥ A.END. Conclusion: a single assistant message with N `Agent` calls fans them out concurrently, modulo per-agent startup latency on the order of ~1s. Step 4.0 keeps the parallel design.
+
 **Rationale**: Tool documentation states multiple tool calls in a single message run in parallel when there are no dependencies. The `Agent` tool is a regular tool from the harness's perspective; nothing in its documentation excludes it. The probe is cheap (sub-30s test).
 
 **Alternatives considered**:

@@ -11,6 +11,12 @@ args:
   - name: --reset
     description: Discard existing .specswarm guides and regenerate from scratch (backup is still taken)
     required: false
+  - name: --full-scan
+    description: (v7.0.0) Lift the default depth bounds on source discovery (Step 3.0). Use when spec docs live outside docs/, specs/, documentation/.
+    required: false
+  - name: --include-user-memory
+    description: (v7.0.0) Include user_*.md memory files in extraction (Step 4.0). Default is skip (personal context, not project rules).
+    required: false
 ---
 
 ## User Input
@@ -65,6 +71,23 @@ fi
 RESET_MODE=false
 if echo "$ARGUMENTS" | grep -q -- '--reset'; then
   RESET_MODE=true
+fi
+
+# v7.0.0: Detect --full-scan and --include-user-memory flags
+FULL_SCAN_FLAG=false
+if echo "$ARGUMENTS" | grep -q -- '--full-scan'; then
+  FULL_SCAN_FLAG=true
+fi
+
+INCLUDE_USER_MEMORY_FLAG=false
+if echo "$ARGUMENTS" | grep -q -- '--include-user-memory'; then
+  INCLUDE_USER_MEMORY_FLAG=true
+fi
+
+# Detect --minimal flag (referenced by v7.0.0 Steps 3.0 / 4.0 / 4.1 / 4.2 for short-circuit)
+MINIMAL_MODE=false
+if echo "$ARGUMENTS" | grep -q -- '--minimal'; then
+  MINIMAL_MODE=true
 fi
 
 if [ ${#EXISTING_FILES[@]} -gt 0 ]; then
@@ -440,6 +463,119 @@ If `$PRINCIPLES_CHOICE` == "Let me provide custom":
 
 ---
 
+### Step 3.0: Source Discovery (NEW in v7.0.0)
+
+**Skip this step entirely if `MINIMAL_MODE=true`.** No subagent dispatch, no `.discovery.tmp` written. Downstream steps detect the missing file and fall back to v6.4.0 filesystem scans.
+
+This step dispatches a single subagent to classify the project's documentation and configuration surface. The subagent's structured output (`.specswarm/.discovery.tmp`) is consumed by:
+
+- Step 3.5 (references) — to filter candidate spec corpus docs and reference codebases
+- Step 4.0 (extractors) — to build targeted reading lists per extractor
+- Step 6.5 (conventions analysis) — to use a pre-classified source-code inventory
+
+Parent context never sees the bulk of file content; only the structured classification summary. This is the architectural reason v7 can extract from 20K-line spec corpora without context exhaustion.
+
+```bash
+if [ "$MINIMAL_MODE" = true ]; then
+  echo "⏭️  Step 3.0 skipped — --minimal mode."
+  DISCOVERY_AVAILABLE=false
+else
+  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+  # Canonical Claude Code memory path (one per project).
+  # Path encoding: replace each "/" in absolute repo path with "-".
+  MEMORY_DIR="$HOME/.claude/projects/$(echo "$REPO_ROOT" | tr / -)/memory"
+
+  mkdir -p "$REPO_ROOT/.specswarm"
+  DISCOVERY_TMP="$REPO_ROOT/.specswarm/.discovery.tmp"
+  rm -f "$DISCOVERY_TMP"
+
+  echo ""
+  echo "🔍 Step 3.0/7 — Discovering project sources..."
+  echo "   Repo root:    $REPO_ROOT"
+  echo "   Memory dir:   $MEMORY_DIR$([ -d "$MEMORY_DIR" ] && echo "" || echo "  (not present)")"
+  echo "   Full scan:    $FULL_SCAN_FLAG"
+  echo ""
+
+  DISCOVERY_AVAILABLE=true
+fi
+```
+
+**LLM action (only when `DISCOVERY_AVAILABLE=true`):**
+
+Dispatch the source-discovery subagent via a single `Agent` tool call. The prompt body below is fed verbatim, with `<REPO_ROOT>`, `<FULL_SCAN_FLAG>`, and `<MEMORY_DIR>` interpolated from the shell variables above.
+
+```
+Agent({
+  description: "Discover and classify SpecSwarm sources",
+  subagent_type: "general-purpose",
+  prompt: <prompt body below>
+})
+```
+
+**Prompt body (ship verbatim, interpolating the three variables):**
+
+> You are SpecSwarm's source-discovery agent. Map this project's documentation and configuration surface so the main `/ss:init` flow knows what to extract from.
+>
+> Repo root: `<REPO_ROOT>`
+> Full-scan mode: `<FULL_SCAN_FLAG>` (default `false` — scan only `docs/`, `specs/`, `documentation/`, `.specswarm/specs/`, repo-root depth-1 `*.md`/`*.mdx`, and standard config files at repo root)
+> Canonical memory dir: `<MEMORY_DIR>` (consult only if it exists)
+>
+> Procedure:
+> 1. From repo root, list files respecting `.gitignore`. Skip `node_modules`, `.git`, `dist`, `build`, `vendor`, lockfiles, files > 1 MB.
+> 2. For markdown files (`.md`, `.mdx`), read the first 50 + last 20 lines to classify and draft a one-sentence summary.
+> 3. For configs (`package.json`, `tsconfig.json`, `vite.config.*`, `drizzle.config.*`, `composer.json`, `pyproject.toml`, `requirements.txt`, `go.mod`, `Gemfile`, `Cargo.toml`, …), note their presence; do not dump full contents.
+> 4. Check the canonical Claude Code memory dir — list files if present.
+> 5. Stem-filtered sibling-repo scan one level up: extract the current repo basename stem (chars before the first hyphen/underscore/dot) and list one-level-up siblings whose basename shares that stem.
+>
+> Classify each file into exactly one category:
+> - `spec-doc` — markdown describing decisions, requirements, architecture, rules
+> - `documentation` — README/CONTRIBUTING/CHANGELOG (general; not project decisions)
+> - `config` — build/tooling configuration
+> - `memory` — Claude Code memory file (`feedback_`/`project_`/`reference_`/`user_`)
+> - `reference-codebase` — external repo referenced by docs
+> - `source-code` — implementation files
+> - `noise` — lockfiles, snapshots, auto-generated, irrelevant
+>
+> Write the output to `.specswarm/.discovery.tmp` as one record per line, tab-separated:
+>
+> ```
+> <category>\t<path-relative-to-repo-root>\t<size-bytes>\t<one-sentence-summary-or-empty>
+> ```
+>
+> Spec-doc records MUST have a non-empty summary (one sentence, no embedded tabs or newlines). Other categories may have empty summaries.
+>
+> End the file with one rollup row:
+>
+> ```
+> noise-rollup\t\t<total-noise-files>\t<dominant-extensions-with-counts>
+> ```
+>
+> Cap the total at 200 classified entries plus the rollup row. Cite paths relative to repo root. Do NOT summarize entire files — one sentence each.
+>
+> When you've written the file, return a brief acknowledgment in this exact form:
+> `Discovered <N> spec-docs, <M> memory files, <K> configs, <noise-count> noise.`
+
+**After the subagent returns:**
+
+```bash
+if [ "$DISCOVERY_AVAILABLE" = true ]; then
+  if [ -s "$DISCOVERY_TMP" ]; then
+    SPEC_DOC_COUNT=$(awk -F'\t' '$1=="spec-doc"' "$DISCOVERY_TMP" | wc -l | tr -d ' ')
+    MEMORY_FILE_COUNT=$(awk -F'\t' '$1=="memory"' "$DISCOVERY_TMP" | wc -l | tr -d ' ')
+    CONFIG_COUNT=$(awk -F'\t' '$1=="config"' "$DISCOVERY_TMP" | wc -l | tr -d ' ')
+    echo "   ✓ Discovered ${SPEC_DOC_COUNT} spec-docs, ${MEMORY_FILE_COUNT} memory files, ${CONFIG_COUNT} configs."
+  else
+    echo "   ⚠️  Discovery returned no output — falling back to v6.4.0 filesystem scans for Steps 3.5/6.5."
+    DISCOVERY_AVAILABLE=false
+  fi
+fi
+```
+
+If `DISCOVERY_AVAILABLE=false` at this point (either due to `--minimal` or empty subagent output), Steps 3.5 and 6.5 use their pre-v7 filesystem-scan code paths.
+
+---
+
 ### Step 3.5: References Discovery & Reconciliation
 
 **Skip this step if `--minimal` flag is present, or if `REFERENCES_MODE=keep`.**
@@ -524,6 +660,27 @@ fi
 
 # Auto-discovery: candidates accumulated as TSV (kind|name|path|verify-file|rationale)
 DISCOVERED=()
+
+# 0. (v7.0.0) Discovery-output consumer — preferred over static pattern scan when available
+#    Reads .specswarm/.discovery.tmp (written by Step 3.0) and adds:
+#      - spec-doc records as "spec|<basename>|<rel-path>||"
+#      - reference-codebase records as "codebase|<name>|<path>|README.md|<one-sentence-summary>"
+#    The static scans below (sections 1, 2, 3) still run; they catch anything discovery missed.
+if [ "${DISCOVERY_AVAILABLE:-false}" = true ] && [ -s "$REPO_ROOT/.specswarm/.discovery.tmp" ]; then
+  echo "🔄 Step 3.5: consuming discovery output for candidate filtering..."
+  while IFS=$'\t' read -r category path size summary; do
+    case "$category" in
+      spec-doc)
+        [ -z "$path" ] && continue
+        DISCOVERED+=("spec|$(basename "$path")|$path||")
+        ;;
+      reference-codebase)
+        [ -z "$path" ] && continue
+        DISCOVERED+=("codebase|$(basename "$path")|$path|README.md|${summary:-Reference codebase (from discovery)}")
+        ;;
+    esac
+  done < "$REPO_ROOT/.specswarm/.discovery.tmp"
+fi
 
 # 1. Sibling git repos that share a name stem with the current repo
 #    (Stem = chars before first hyphen/underscore/dot in the current repo's basename.
@@ -1389,8 +1546,17 @@ Generate `.specswarm/conventions.md` by having Claude read key project files and
 - Prettier config (`.prettierrc*`)
 - Biome config (`biome.json`, `biome.jsonc`)
 - Existing `CLAUDE.md` or `AGENTS.md`
-- 2-3 representative source files (largest files in `src/` or project root)
+- 2-3 representative source files (see source-inventory note below)
 - `package.json` scripts section
+
+**Source-inventory note (v7.0.0):** when `DISCOVERY_AVAILABLE=true` and `.specswarm/.discovery.tmp` exists, the source files to read are the 3 largest `source-code` records by size from that file, parsed via:
+
+```bash
+awk -F'\t' '$1=="source-code" {print $3"\t"$2}' "$REPO_ROOT/.specswarm/.discovery.tmp" \
+  | sort -nr | head -3 | cut -f2
+```
+
+Falls back to "largest 2-3 files in `src/` or project root" when discovery is unavailable. Either path yields a similar set in practice; the discovery-output path avoids a redundant filesystem traversal and respects the same `.gitignore` / size-cap policy used elsewhere in v7.
 
 **Generate `.specswarm/conventions.md`** with these sections (note the `<!-- ss:user-additions -->` block at the bottom — content there is preserved across re-runs):
 
