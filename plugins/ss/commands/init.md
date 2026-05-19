@@ -983,6 +983,355 @@ echo ""
 
 ---
 
+### Step 4.0: Parallel Extraction (NEW in v7.0.0)
+
+**Skip this step entirely if any of the following:**
+- `MINIMAL_MODE=true` (no interactive flow; no point dispatching extractors)
+- `DISCOVERY_AVAILABLE=false` (no `.discovery.tmp` to drive reading lists)
+- The discovery output contains zero `spec-doc` records AND zero `memory` records (nothing to extract from beyond config files; the v6.x defaults cover that case adequately)
+
+When skipped, the three per-destination fallback flags below are set to `true` and Steps 4, 5, 6 use their v6.4.0 code paths.
+
+This step dispatches three extractor subagents **in a single message with three `Agent` tool calls** so they run concurrently. Each one reads only its targeted slice of `.discovery.tmp` and writes proposals to `.specswarm/.proposals.<destination>.tmp` per the pipe-delimited record format in `plugins/ss/lib/extraction-schema.sh` and the design doc `data-model.md`.
+
+```bash
+EXTRACTION_AVAILABLE=false
+TECH_STACK_FALLBACK=true
+QUALITY_FALLBACK=true
+CONSTITUTION_FALLBACK=true
+
+if [ "$MINIMAL_MODE" = true ]; then
+  echo "⏭️  Step 4.0 skipped — --minimal mode."
+elif [ "${DISCOVERY_AVAILABLE:-false}" != true ]; then
+  echo "⏭️  Step 4.0 skipped — discovery output unavailable (Step 3.0 produced no .discovery.tmp)."
+elif [ ! -s "$REPO_ROOT/.specswarm/.discovery.tmp" ]; then
+  echo "⏭️  Step 4.0 skipped — discovery output empty."
+else
+  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  DISCOVERY_TMP="$REPO_ROOT/.specswarm/.discovery.tmp"
+
+  # Count spec-doc and memory records — if both are zero, skip extraction.
+  SPEC_DOC_COUNT=$(awk -F'\t' '$1=="spec-doc"' "$DISCOVERY_TMP" | wc -l | tr -d ' ')
+  MEMORY_COUNT=$(awk -F'\t'   '$1=="memory"'   "$DISCOVERY_TMP" | wc -l | tr -d ' ')
+
+  if [ "${SPEC_DOC_COUNT:-0}" -eq 0 ] && [ "${MEMORY_COUNT:-0}" -eq 0 ]; then
+    echo "ℹ️  Step 4.0 skipped — no spec-docs or memory files discovered. Foundation files will be generated from auto-detect + interactive defaults (v6.x parity)."
+  else
+    echo ""
+    echo "🚀 Step 4.0/7 — Extracting foundation-file proposals (3 subagents in parallel)..."
+    echo "   Spec-docs:    $SPEC_DOC_COUNT"
+    echo "   Memory files: $MEMORY_COUNT"
+    echo "   User memory:  $([ "$INCLUDE_USER_MEMORY_FLAG" = true ] && echo "included (--include-user-memory)" || echo "skipped (default)")"
+    echo ""
+
+    # Build the three filtered reading lists from .discovery.tmp.
+    #
+    # All three subagents receive a single concatenated text blob each, with
+    # one path per line, prefixed by category. Each subagent decides which
+    # subset of its list to read deeply.
+
+    #
+    # Common: all spec-doc paths (every extractor benefits from spec-doc context)
+    #
+    SPEC_DOCS_LIST=$(awk -F'\t' '$1=="spec-doc" {print $2}' "$DISCOVERY_TMP")
+
+    #
+    # Common: config files (tech-stack extractor needs these the most)
+    #
+    CONFIG_LIST=$(awk -F'\t' '$1=="config" {print $2}' "$DISCOVERY_TMP")
+
+    #
+    # Memory routing — default skips user_*.md; --include-user-memory flag opts in.
+    #
+    if [ "$INCLUDE_USER_MEMORY_FLAG" = true ]; then
+      MEMORY_LIST=$(awk -F'\t' '$1=="memory" {print $2}' "$DISCOVERY_TMP")
+    else
+      MEMORY_LIST=$(awk -F'\t' '$1=="memory" && $2 !~ /\/user_[^/]+\.md$/ {print $2}' "$DISCOVERY_TMP")
+    fi
+
+    # Subagent-specific memory filters
+    TECH_MEMORY=$(echo "$MEMORY_LIST" | grep -E '/project_(tech|.*stack.*|.*framework.*|.*decisions.*)' || true)
+    QUALITY_MEMORY=$(echo "$MEMORY_LIST" | grep -E '/project_(perf|a11y|quality|.*budget.*)'         || true)
+    CONST_FEEDBACK=$(echo "$MEMORY_LIST" | grep -E '/feedback_'                                     || true)
+    CONST_PROJECT_CANDIDATES=$(echo "$MEMORY_LIST"  | grep -E '/project_' || true)
+    # Constitution extractor's prompt instructs it to skim project_*.md and
+    # include only those that show enforceable-rule shape.
+
+    EXTRACTION_AVAILABLE=true
+  fi
+fi
+```
+
+**LLM action (only when `EXTRACTION_AVAILABLE=true`):**
+
+Issue **a single assistant message with THREE `Agent` tool calls**, interpolating the per-extractor reading lists. Parallel dispatch is verified working as of 2026-05-18 (see `research.md` R1); the three subagents start within ~1–2s of each other and run concurrently.
+
+```
+Agent({
+  description: "Extract tech-stack proposals from spec corpus",
+  subagent_type: "general-purpose",
+  prompt: <tech-stack extractor prompt below, with reading list interpolated>
+})
+Agent({
+  description: "Extract quality-standards proposals from spec corpus",
+  subagent_type: "general-purpose",
+  prompt: <quality-standards extractor prompt below>
+})
+Agent({
+  description: "Extract constitution principles from spec corpus + memory",
+  subagent_type: "general-purpose",
+  prompt: <constitution extractor prompt below>
+})
+```
+
+**Tech-stack extractor prompt (verbatim):**
+
+> You are SpecSwarm's tech-stack extractor. Read project sources and propose content for `.specswarm/tech-stack.md`.
+>
+> Reading list (read in full, or via grep where files exceed 2000 lines):
+>
+> Spec docs:
+> ```
+> <SPEC_DOCS_LIST>
+> ```
+>
+> Memory (tech-relevant):
+> ```
+> <TECH_MEMORY>
+> ```
+>
+> Configs:
+> ```
+> <CONFIG_LIST>
+> ```
+>
+> Identify:
+> 1. Framework (name + version + rationale)
+> 2. Language (name + version + strict flags + rationale)
+> 3. Build tool (name + version + rationale)
+> 4. State management approach
+> 5. Styling approach
+> 6. Testing tools (unit / integration / e2e — each)
+> 7. Approved libraries (positive list)
+> 8. Prohibited technologies (negative list — "do not use X", "rejected over Y")
+> 9. Open tech decisions (`[OPEN]` markers tied to tech choices with phase deadlines)
+>
+> Output your proposals to `.specswarm/.proposals.tech-stack.tmp` as pipe-delimited records:
+>
+> ```
+> tech-stack|<key>|<value>|<confidence>|<citation>|<rationale>
+> ```
+>
+> Where:
+> - `<key>` is one of: `framework`, `framework_version`, `language`, `language_version`, `language_strict_flags`, `build_tool`, `build_tool_version`, `state_mgmt`, `styling`, `unit_test`, `integration_test`, `e2e_test`, `approved_lib.<n>`, `prohibited.<n>`, `open_decision.<n>` (positional indices for repeated keys, n=1,2,3,...).
+> - `<confidence>` ∈ {`high` (explicit + version + `[DECIDED]` marker), `medium` (explicit, no decision marker), `low` (inferred)}.
+> - `<citation>` is `<repo-relative-path>` or `<repo-relative-path>:<line-or-§section>`.
+> - `<rationale>` is free text on one line.
+>
+> If any field contains a newline, a literal `|`, or the markers themselves, wrap the field in:
+>
+> ```
+> <<<BLOCK
+> ...content...
+> BLOCK
+> ```
+>
+> The `BLOCK` closer MUST sit alone on its line; the next field delimiter `|` continues on the following line.
+>
+> Cap 60 records. Skip duplicates within your own output (prefer highest confidence on collision).
+>
+> When you've written the file, return a brief acknowledgment: `Tech-stack: <N> proposals (<H> high / <M> medium / <L> low).`
+
+**Quality-standards extractor prompt (verbatim):**
+
+> You are SpecSwarm's quality-standards extractor. Propose content for `.specswarm/quality-standards.md`.
+>
+> Reading list (read in full, or via grep where files exceed 2000 lines):
+>
+> Spec docs:
+> ```
+> <SPEC_DOCS_LIST>
+> ```
+>
+> Memory (quality-relevant):
+> ```
+> <QUALITY_MEMORY>
+> ```
+>
+> Identify:
+> 1. Coverage thresholds (target %)
+> 2. Performance budgets (per-page LCP/TBT/CLS, asset budgets, bundle limits)
+> 3. Browser support floor
+> 4. Accessibility (WCAG level, axe-core, screen reader gates, contrast, focus visible, touch targets, reduced-motion)
+> 5. Error handling pattern (N-layer model, anti-patterns)
+> 6. Email deliverability targets
+> 7. Audit/logging required behaviors
+> 8. Build-time guardrails (TS strict flags, ESLint rules, migration linting)
+> 9. Pre-merge checklist items
+>
+> Output your proposals to `.specswarm/.proposals.quality-standards.tmp` as pipe-delimited records:
+>
+> ```
+> quality-standards|<key>|<value>|<confidence>|<citation>|<rationale>
+> ```
+>
+> Where `<key>` is one of: `coverage_threshold`, `perf_budget.<category>`, `browser_support_floor`, `a11y_wcag_level`, `a11y_axe_required`, `a11y_screen_reader_gate`, `a11y_contrast`, `a11y_focus_visible`, `a11y_touch_targets`, `a11y_reduced_motion`, `error_handling_pattern`, `email_deliverability_target`, `audit_required.<n>`, `build_guardrail.<n>`, `pre_merge_check.<n>`.
+>
+> Same confidence rules and BLOCK-wrap rules as the tech-stack extractor.
+>
+> Cap 50 records. Skip duplicates (prefer highest confidence).
+>
+> When you've written the file, return a brief acknowledgment: `Quality-standards: <N> proposals (<H> high / <M> medium / <L> low).`
+
+**Constitution extractor prompt (verbatim):**
+
+This subagent absorbs the v6.2.0 memory-driven principle import — there is no longer a separate Step 4.5. Single extraction pass over spec docs + feedback memory + selected project memory.
+
+> You are SpecSwarm's constitution extractor. Propose content for `.specswarm/constitution.md`.
+>
+> Reading list:
+>
+> Spec docs (read in full or via grep > 2000 lines):
+> ```
+> <SPEC_DOCS_LIST>
+> ```
+>
+> Feedback memory (high-yield — read ALL of these in full):
+> ```
+> <CONST_FEEDBACK>
+> ```
+>
+> Project memory candidates (skim each; include in extraction ONLY if it shows enforceable-rule shape — imperative verbs, file globs, data invariants. Skip pure-context project files like activity logs, current-state trackers, contact info):
+> ```
+> <CONST_PROJECT_CANDIDATES>
+> ```
+>
+> Identify project-specific ENFORCEABLE rules. Look for imperative language:
+> - "must NEVER", "always", "required to", "forbidden", "only", "every X must Y", "we do not …", "the system rejects …"
+>
+> For each candidate principle:
+>
+> 1. Draft a declarative principle body in this exact shape:
+>
+>    ```
+>    ### P<n>. <Short name>
+>
+>    <Body — declarative form, 1-3 sentences>
+>
+>    **Why:** <Rationale from source>
+>    ```
+>
+>    Number P1, P2, ... sequentially.
+>
+> 2. Propose a constitutional-hook rule block ONLY if mechanically enforceable. Use one of three formats:
+>
+>    ```
+>    <!-- specswarm-rule: no-pattern -->
+>    <!-- path-glob: <glob> -->
+>    <!-- bad-pattern: <regex> -->
+>    <!-- summary: <text> -->
+>    <!-- severity: warn|block -->
+>    ```
+>
+>    ```
+>    <!-- specswarm-rule: required-pattern -->
+>    <!-- path-glob: <glob> -->
+>    <!-- required-pattern: <regex> -->
+>    <!-- summary: <text> -->
+>    <!-- severity: warn|block -->
+>    ```
+>
+>    ```
+>    <!-- specswarm-rule: required-pair -->
+>    <!-- path-glob: <glob> -->
+>    <!-- trigger-pattern: <regex> -->
+>    <!-- pair-pattern: <regex> -->
+>    <!-- summary: <text> -->
+>    <!-- severity: warn|block -->
+>    ```
+>
+>    Use the source file's actual content to inform the regex/glob — do NOT invent values. If the rule is real but not mechanically enforceable, leave the rule_block field empty.
+>
+> 3. Tag severity:
+>    - `block` for non-recoverable rules (compliance, trade-secret, security)
+>    - `warn` for everything else
+>
+> 4. Cite source: `<file>:<§section-or-line>` and a 1-line quote in the rationale field.
+>
+> Output your proposals to `.specswarm/.proposals.constitution.tmp` as pipe-delimited records WITH two trailing fields (severity, rule_block):
+>
+> ```
+> constitution|P<n>.<slug>|<<<BLOCK
+> ### P<n>. <Short name>
+>
+> <Body>
+>
+> **Why:** <Rationale>
+> BLOCK
+> |<confidence>|<citation>|<rationale>|<severity>|<<<BLOCK
+> <!-- specswarm-rule: ... -->
+> ...
+> BLOCK
+> ```
+>
+> Or with empty rule_block (real but not mechanically enforceable):
+>
+> ```
+> constitution|P<n>.<slug>|<<<BLOCK
+> ...principle body...
+> BLOCK
+> |<confidence>|<citation>|<rationale>|<severity>|
+> ```
+>
+> Skip vague rules ("write good code", "be consistent"). Focus on rules naming specific patterns, file globs, or data invariants.
+>
+> Cap 15 principles. When done, return a brief acknowledgment: `Constitution: <N> principles (<RB> with rule blocks, <WB> warn / <BL> block).`
+
+**After all three subagents return** (parent flow resumes):
+
+```bash
+# Verify each proposals file; set fallback flags.
+TECH_PROP="$REPO_ROOT/.specswarm/.proposals.tech-stack.tmp"
+QUAL_PROP="$REPO_ROOT/.specswarm/.proposals.quality-standards.tmp"
+CONST_PROP="$REPO_ROOT/.specswarm/.proposals.constitution.tmp"
+
+if [ "$EXTRACTION_AVAILABLE" = true ]; then
+  if [ -s "$TECH_PROP" ]; then
+    TECH_STACK_FALLBACK=false
+    TECH_COUNT=$(grep -c '^tech-stack|' "$TECH_PROP" 2>/dev/null || echo 0)
+    echo "   ✓ Tech-stack:        $TECH_COUNT proposals"
+  else
+    echo "   ⚠️  tech-stack-extractor returned no proposals — falling back to v6.x interactive flow for tech-stack."
+  fi
+
+  if [ -s "$QUAL_PROP" ]; then
+    QUALITY_FALLBACK=false
+    QUAL_COUNT=$(grep -c '^quality-standards|' "$QUAL_PROP" 2>/dev/null || echo 0)
+    echo "   ✓ Quality-standards: $QUAL_COUNT proposals"
+  else
+    echo "   ⚠️  quality-standards-extractor returned no proposals — falling back to v6.x defaults."
+  fi
+
+  if [ -s "$CONST_PROP" ]; then
+    CONSTITUTION_FALLBACK=false
+    CONST_COUNT=$(grep -c '^constitution|' "$CONST_PROP" 2>/dev/null || echo 0)
+    echo "   ✓ Constitution:      $CONST_COUNT principles"
+  else
+    echo "   ⚠️  constitution-extractor returned no proposals — falling back to v6.2.0 memory-driven principle import for constitution."
+  fi
+fi
+```
+
+The four flags (`EXTRACTION_AVAILABLE`, `TECH_STACK_FALLBACK`, `QUALITY_FALLBACK`, `CONSTITUTION_FALLBACK`) drive Steps 4, 5, 6 behavior:
+
+- `EXTRACTION_AVAILABLE=false` → All three steps use their v6.4.0 generation paths exactly as before.
+- `<destination>_FALLBACK=true` → That step uses its v6.4.0 path; other destinations consume Step 4.1 aggregated proposals.
+- All `_FALLBACK=false` → All three steps consume Step 4.1 aggregated proposals.
+
+Step 4.1 (aggregation) and Step 4.2 (acceptance) run next; they're skipped when `EXTRACTION_AVAILABLE=false`. The actual aggregation + acceptance UI is in Phase 1C of v7.0.0 development (separate commit).
+
+---
+
 ### Step 4: Create, reconcile, or augment .specswarm/constitution.md
 
 **Branching logic by mode** (`CONSTITUTION_MODE` set in Step 1.6, defaults to `normal`):
@@ -1067,182 +1416,15 @@ Constitution authors can opt principles into mechanical enforcement by adding HT
 
 ---
 
-### Step 4.5: Memory-Driven Principle Import (NEW in v6.2.0)
-
-**Skip this step if `--minimal` flag is present.**
-
-If the user populated memory directories in `.specswarm/references.md` (Step 3.5), this step scans those directories for `feedback_*.md` / `project_*.md` / `reference_*.md` files, surfaces them as candidate principles, and appends accepted ones to `.specswarm/constitution.md`. Skipped silently if no memory dirs are configured.
-
-The pattern: Claude Code memory files often encode opinionated rules in prose ("calculation engine math must NEVER be on the frontend") that map cleanly onto the SpecSwarm constitutional-hook format (`no-pattern-in-paths` / `required-import-in-files` / `required-pair-in-additions`). This step does that translation interactively — the user wrote the memory once, SpecSwarm proposes the mechanical enforcement, the user accepts or rejects each proposal.
-
-```bash
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-PLUGIN_DIR_SS_MEM="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOADER_MEM="${PLUGIN_DIR_SS_MEM}/lib/references-loader.sh"
-
-MEMORY_AVAILABLE=false
-
-if [ -f "$LOADER_MEM" ]; then
-  # shellcheck disable=SC1090
-  source "$LOADER_MEM"
-
-  if ss_references_exist; then
-    MEM_FILE_COUNT=$(ss_memory_scan_files | wc -l)
-    if [ "$MEM_FILE_COUNT" -gt 0 ]; then
-      MEMORY_AVAILABLE=true
-    fi
-  fi
-fi
-
-if [ "$MEMORY_AVAILABLE" = true ]; then
-  echo ""
-  echo "🧠 Memory-Driven Principle Import"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo ""
-  echo "Found $MEM_FILE_COUNT memory file(s) across declared memory directories."
-  echo ""
-  ss_memory_count_by_kind | while IFS=$'\t' read -r kind count; do
-    [ "$count" -eq 0 ] && continue
-    case "$kind" in
-      feedback)  echo "   📐 $count feedback file(s)   — opinionated rules / preferences (high principle yield)" ;;
-      project)   echo "   📋 $count project file(s)    — project state / context (lower yield)" ;;
-      reference) echo "   🔗 $count reference file(s)  — cross-references" ;;
-      user)      echo "   👤 $count user file(s)       — user-profile context" ;;
-    esac
-  done
-  echo ""
-fi
-```
-
-**If `MEMORY_AVAILABLE = true`, you (Claude) MUST do the following:**
-
-a. **Ask the user first**, before reading anything, via **AskUserQuestion**:
-
-```
-Question: "Scan memory files to propose constitution principles?"
-Header: "Memory import"
-Options:
-  1. "Yes, scan all"
-     Description: "Read every memory file and propose principles. You'll review/accept/reject each proposal individually."
-  2. "Yes, feedback files only"
-     Description: "Skip project/reference/user files — they rarely yield principles. Reads only feedback_*.md (highest yield)."
-  3. "Skip memory import"
-     Description: "Constitution stays as generated by Step 4. You can re-run /ss:init later or hand-author additions."
-```
-
-Store as `$MEMORY_SCAN_SCOPE`.
-
-b. **If `$MEMORY_SCAN_SCOPE` == "Skip memory import"**, jump straight to Step 5.
-
-c. **Otherwise, scan memory files in scope:**
-- Use `Bash` to enumerate: `ss_memory_scan_files | while read f; do kind=$(ss_memory_classify_kind "$f"); ...`
-- For "feedback files only" mode: filter to `kind == "feedback"`
-- For "scan all" mode: include feedback + project + reference (skip `user_*.md` — rarely encodes enforceable rules)
-
-d. **For each in-scope memory file**, use the `Read` tool to load its content. Then analyze: does this memory entry describe an *enforceable* rule that maps to one of the three constitutional-hook templates?
-
-   **Eligibility heuristics — propose a principle when the memory contains:**
-   - Imperative language: "must NEVER", "always", "required to", "forbidden", "only"
-   - Mechanical enforcement signal: a specific pattern that can be regex-matched in source code (e.g., import statements, function calls, file path globs)
-   - Rationale: a "why" the rule exists (the memory itself usually has this)
-
-   **Skip files that are pure context/state, not rules:**
-   - Lists of decisions made (use spec corpus consultation in /ss:specify, not constitution)
-   - Tech stack inventories (handled by tech-stack.md, not constitution)
-   - Project metadata (status, contacts, links)
-   - Memory whose enforcement would require runtime semantics, not static-text matching
-
-e. **For each eligible memory file**, draft a principle in the constitution-hook format the parser actually accepts (`lib/constitution-parser.sh`). Each rule block is a contiguous run of HTML comments, one `key: value` per line, with the rule type on the first line. Map to one of three types:
-
-   - **no-pattern** — "X must never appear in files matching Y"
-     Example (drafted from `feedback_trade_secrets.md`):
-     ```markdown
-     ### Trade-secret math is server-side only
-
-     <!-- specswarm-rule: no-pattern -->
-     <!-- path-glob: app/components/** -->
-     <!-- bad-pattern: from\s+['"].*board-calculator -->
-     <!-- summary: Trade-secret math is server-side only -->
-     <!-- severity: block -->
-     ```
-     Rationale source: `feedback_trade_secrets.md` — calculation engine math must never reach the frontend bundle. Severity=block because leakage is unrecoverable.
-
-   - **required-pattern** — "Files matching Y must contain X"
-     Example (drafted from a hypothetical `feedback_v2_reference_required.md`):
-     ```markdown
-     ### v2 source mandatory for calc-engine work
-
-     <!-- specswarm-rule: required-pattern -->
-     <!-- path-glob: app/engine/** -->
-     <!-- required-pattern: // v2-ref: customcult2/ -->
-     <!-- summary: v2 source mandatory for calc-engine work -->
-     ```
-     Rationale source: `feedback_v2_reference_required.md` — calc engine port delegates to v2 PHP as canonical. Severity default (warn) — missing tag is fixable, not a leak.
-
-   - **required-pair** — "When pattern A appears, pattern B must also appear in the same file"
-     Example (drafted from `project_admin_audit_log.md`):
-     ```markdown
-     ### Admin writes require audit_log entry
-
-     <!-- specswarm-rule: required-pair -->
-     <!-- path-glob: app/routes/admin/** -->
-     <!-- trigger-pattern: db\.(insert|update|delete) -->
-     <!-- pair-pattern: audit_log\( -->
-     <!-- summary: Admin writes require audit_log entry -->
-     <!-- severity: block -->
-     ```
-     Rationale source: `project_admin_audit_log.md` — every admin mutation logs admin_audit_log row. Severity=block because silent audit-log skipping is a compliance gap.
-
-   **Severity selection heuristic (v6.3.0).** Default to `severity: warn` (or omit the field). Propose `severity: block` when the source memory entry contains any of these gravity signals: `must NEVER`, `trade secret`, `compliance`, `audit`, `leak`, `pii`, `secret`, `forbidden`, `unrecoverable`, or explicit language indicating that a false negative produces irreversible damage. When in doubt, propose warn — the user can re-rank to block in step f below.
-
-f. **Surface each draft principle to the user** via **AskUserQuestion**, including a severity choice:
-
-```
-Question: "Add this principle to constitution.md?"
-Header: "Principle N/M"
-Options:
-  1. "Yes — add at proposed severity (<warn|block>)"
-     Description: "[show principle title + drafted severity + first line of rationale]"
-  2. "Yes — but flip severity to <opposite>"
-     Description: "Same principle, opposite severity. Pick this if you want stronger/weaker enforcement than the heuristic chose."
-  3. "Yes — but I'll edit later"
-     Description: "Add at proposed severity; you'll hand-edit the regex/glob/severity in constitution.md after init."
-  4. "No, skip this one"
-     Description: "Memory file is too prose-y / not enforceable / I'll keep this as memory only."
-```
-
-Track each accept/reject + severity choice. Cap proposals at **10 principles per init** to keep the session bounded.
-
-g. **For each accepted principle**, append it to `.specswarm/constitution.md` under a section header `## Imported from memory (auto-proposed YYYY-MM-DD)`. Don't overwrite existing sections.
-
-h. **Re-run constitutional hook generation** so the newly-imported principles get their PostToolUse hooks generated. The same `generate_constitutional_hooks` function from Step 4 is called again — it's idempotent and only creates hooks for principles that don't already have one.
-
-```bash
-if [ -f "$PLUGIN_DIR_SS_MEM/lib/constitution-parser.sh" ]; then
-  source "$PLUGIN_DIR_SS_MEM/lib/constitution-parser.sh"
-  generate_constitutional_hooks "${REPO_ROOT}/.specswarm/constitution.md" "${REPO_ROOT}/.specswarm/hooks/generated"
-  echo ""
-  echo "✅ Imported principles → generated constitutional hooks (warn + block)"
-fi
-```
-
-**Note on severity changes:** the generator preserves existing hook files (so user edits aren't clobbered). If you change a principle's severity in `constitution.md` after import, delete the corresponding file under `.specswarm/hooks/generated/` to force regeneration with the new severity.
-
-i. **Display summary**:
-```bash
-echo ""
-echo "🧠 Memory Import Summary"
-echo "   Files scanned:        $SCANNED_COUNT"
-echo "   Principles proposed:  $PROPOSED_COUNT"
-echo "   Principles accepted:  $ACCEPTED_COUNT"
-echo "   Constitution.md:      .specswarm/constitution.md"
-echo "   Generated hooks:      .specswarm/hooks/generated/"
-echo ""
-```
-
-**If `MEMORY_AVAILABLE = false`**, skip Step 4.5 entirely. Proceed to Step 5. No banner, no prompts, no constitution edits — backward-compatible with v6.1.0 behavior when no memory dirs are declared.
-
----
+<!--
+v7.0.0 note: the v6.2.0 "Step 4.5: Memory-Driven Principle Import" step was
+REMOVED. Its responsibilities were folded into the constitution extractor
+dispatched from Step 4.0 above. The extractor reads ALL feedback_*.md files
+plus selected project_*.md files (only those showing enforceable-rule shape)
+in a single extraction pass, producing principle proposals that Step 4.2
+surfaces for user acceptance — same UX outcome as the old Step 4.5 but
+without a second pass over memory directories.
+-->
 
 ### Step 5: Create, reconcile, or augment .specswarm/tech-stack.md
 
