@@ -1328,11 +1328,158 @@ The four flags (`EXTRACTION_AVAILABLE`, `TECH_STACK_FALLBACK`, `QUALITY_FALLBACK
 - `<destination>_FALLBACK=true` → That step uses its v6.4.0 path; other destinations consume Step 4.1 aggregated proposals.
 - All `_FALLBACK=false` → All three steps consume Step 4.1 aggregated proposals.
 
-Step 4.1 (aggregation) and Step 4.2 (acceptance) run next; they're skipped when `EXTRACTION_AVAILABLE=false`. The actual aggregation + acceptance UI is in Phase 1C of v7.0.0 development (separate commit).
+Step 4.1 (aggregation) and Step 4.2 (acceptance) run next; both are skipped when `EXTRACTION_AVAILABLE=false`.
+
+---
+
+### Step 4.1: Aggregation + Conflict Detection (NEW in v7.0.0)
+
+**Skip this step if `EXTRACTION_AVAILABLE=false`.**
+
+Aggregate the three `.proposals.<destination>.tmp` files into a single normalized `.specswarm/.proposals.aggregated.tmp` per `data-model.md §Format 3`:
+
+- Dedupe within and across extractors (same `destination|key` → keep highest confidence)
+- Detect conflicts (same `destination|key`, different values → emit `conflict-group:` marker followed by all candidates)
+- Sort destinations in canonical order: tech-stack → quality-standards → constitution
+
+```bash
+if [ "$EXTRACTION_AVAILABLE" = true ]; then
+  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  PLUGIN_DIR_V7="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+  AGGREGATOR_LIB="$PLUGIN_DIR_V7/lib/proposal-aggregator.sh"
+  if [ -f "$AGGREGATOR_LIB" ]; then
+    # shellcheck disable=SC1090
+    source "$AGGREGATOR_LIB"
+  else
+    echo "❌ proposal-aggregator.sh not found at $AGGREGATOR_LIB — skipping aggregation."
+    EXTRACTION_AVAILABLE=false
+  fi
+fi
+
+if [ "$EXTRACTION_AVAILABLE" = true ]; then
+  TECH_PROP="$REPO_ROOT/.specswarm/.proposals.tech-stack.tmp"
+  QUAL_PROP="$REPO_ROOT/.specswarm/.proposals.quality-standards.tmp"
+  CONST_PROP="$REPO_ROOT/.specswarm/.proposals.constitution.tmp"
+  AGG_FILE="$REPO_ROOT/.specswarm/.proposals.aggregated.tmp"
+
+  echo ""
+  echo "🧮 Step 4.1/7 — Aggregating proposals + detecting conflicts..."
+
+  # Only include proposals files that actually exist + are non-empty
+  AGG_INPUTS=()
+  [ -s "$TECH_PROP" ]  && AGG_INPUTS+=("$TECH_PROP")
+  [ -s "$QUAL_PROP" ]  && AGG_INPUTS+=("$QUAL_PROP")
+  [ -s "$CONST_PROP" ] && AGG_INPUTS+=("$CONST_PROP")
+
+  ss_proposals_aggregate "$AGG_FILE" "${AGG_INPUTS[@]}"
+
+  # Surface counts and conflicts
+  while IFS=$'\t' read -r dest total high medium low; do
+    [ -z "$dest" ] && continue
+    echo "   ✓ ${dest}: ${total} proposals (${high} high / ${medium} medium / ${low} low)"
+  done < <(ss_proposals_count_by_destination "$AGG_FILE")
+
+  CONFLICT_COUNT=$(ss_proposals_count_conflicts "$AGG_FILE")
+  if [ "${CONFLICT_COUNT:-0}" -gt 0 ]; then
+    echo "   ⚠️  ${CONFLICT_COUNT} conflict(s) detected — will be surfaced individually in Step 4.2"
+  fi
+
+  # Coverage gaps per destination — informational, not blocking
+  for d in tech-stack quality-standards; do
+    GAPS=$(ss_proposals_coverage_gaps "$d" "$AGG_FILE" | wc -l | tr -d ' ')
+    if [ "${GAPS:-0}" -gt 0 ]; then
+      echo "   ℹ️  ${d}: ${GAPS} canonical key(s) not covered by extraction (will use template defaults)"
+    fi
+  done
+fi
+```
+
+---
+
+### Step 4.2: Interactive Acceptance (NEW in v7.0.0)
+
+**Skip this step if `EXTRACTION_AVAILABLE=false`.**
+
+For each destination with proposals, surface them to the user via `AskUserQuestion` per the prompt budget defined in `research.md` R7 (~20 prompts total per `/ss:init` invocation across all destinations). The user's decisions are written to `.specswarm/.acceptance-log.tmp` and to `audit_log` for cross-session traceability.
+
+**Prompt-cap budget (target ~20 total):**
+- Up to 4 batch-accept prompts (one per destination with high-confidence non-conflicting proposals)
+- Up to ~10 per-item conflict prompts (round-robin across destinations until budget consumed)
+- Up to ~6 per-item low-confidence prompts (round-robin within remaining budget)
+- Anything beyond the budget is deferred with a TODO comment in the generated foundation file
+
+**LLM action** (only when `EXTRACTION_AVAILABLE=true`):
+
+For each destination in order (tech-stack → quality-standards → constitution):
+
+1. **Read the aggregated proposals file** (`.specswarm/.proposals.aggregated.tmp`); filter for records belonging to this destination.
+2. **Detect existing-foundation drift (v6.4.0 reconciliation):** if `.specswarm/<destination>.md` already exists and is parseable via `ss_parse_*` (from `guide-parsers.sh`), check whether each declared field matches the proposed value. When they differ, surface as a drift-detection prompt (R10):
+
+   > "tech-stack.md — `unit_test`: declared value differs from corpus
+   >   • declared: `vitest`
+   >   • corpus:   `playwright-component` (docs/STRATEGY.md:§testing-tools [DECIDED 2026-05-15])
+   >   [1] Use corpus value (Recommended) · [2] Keep declared value · [3] Skip — review later"
+
+3. **Batch-accept high-confidence proposals** (non-conflicting, no drift). If there are 3+ such proposals, present a single `AskUserQuestion`:
+
+   > "{destination}.md — {N} high-confidence decisions extracted from {top-citation}. Accept the batch?
+   >   [1] Accept all (Recommended) · [2] Review one by one · [3] Skip — fill in later"
+
+4. **Per-item conflict resolution** — for each `conflict-group:` record, present all candidate values with their citations as a single `AskUserQuestion`:
+
+   > "{destination}.md — {key}: {N} sources disagree
+   >   [1] {value-1} ({citation-1})
+   >   [2] {value-2} ({citation-2})
+   >   [3] Skip — resolve manually later
+   >   [4] Custom value"
+
+5. **Per-item low-confidence prompts** (only if the cap budget allows) — present each `low` proposal individually:
+
+   > "{destination}.md — {key}: low-confidence proposal
+   >   value: {value}
+   >   source: {citation}
+   >   [1] Accept · [2] Reject · [3] Custom value"
+
+6. **Budget exhaustion**: when the cap is reached, remaining low-confidence proposals are deferred. Each deferred proposal gets logged as `decision=defer` in `.acceptance-log.tmp`; the generated foundation file gets a `<!-- TODO (deferred): {key} — see .specswarm/.acceptance-log.tmp -->` comment under the destination's user-additions block.
+
+7. **Write decisions** to `.specswarm/.acceptance-log.tmp` (one TSV line per decision: timestamp, destination, key, decision, accepted-value-or-empty, source-citation-or-empty). Mirror each to `audit_log` for `/ss:audit` traceability.
+
+**After Step 4.2 completes**, downstream Steps 4 / 5 / 6 read accepted proposals from `.specswarm/.proposals.aggregated.tmp` filtered by `.acceptance-log.tmp` (decision in `accept`, `accept-batch`, `custom`, `drift-use-corpus`) and write the foundation files accordingly. The fallback-flag system from Step 4.0 governs which destination falls back to the v6.4.0 path.
+
+```bash
+# Parent-side: nothing more to script here — the LLM action above handles
+# the prompts. After it returns, we ensure the acceptance log was written
+# (a missing file means the LLM step was skipped due to no proposals).
+if [ "$EXTRACTION_AVAILABLE" = true ]; then
+  ACCEPT_LOG="$REPO_ROOT/.specswarm/.acceptance-log.tmp"
+  if [ ! -f "$ACCEPT_LOG" ]; then
+    # Acceptance step did not run (empty proposals after dedupe) — treat as
+    # if all destinations fell back. Downstream Steps 4/5/6 use v6.x paths.
+    TECH_STACK_FALLBACK=true
+    QUALITY_FALLBACK=true
+    CONSTITUTION_FALLBACK=true
+  fi
+fi
+```
 
 ---
 
 ### Step 4: Create, reconcile, or augment .specswarm/constitution.md
+
+**v7.0.0 prelude — consume accepted proposals when available:**
+
+When `EXTRACTION_AVAILABLE=true` AND `CONSTITUTION_FALLBACK=false`, the constitution-extractor proposed principles in Step 4.0 and the user accepted some in Step 4.2. The accepted principles MUST be incorporated into the generated `constitution.md` alongside any v6.x defaults.
+
+**LLM action (only when both flags above are favorable):**
+
+1. Read `.specswarm/.proposals.aggregated.tmp`; filter for `^constitution\|` records (skip `conflict-group:` markers).
+2. Read `.specswarm/.acceptance-log.tmp`; identify which constitution proposals have a decision in `{accept, accept-batch, custom, drift-use-corpus}`.
+3. For each accepted principle, extract: principle key (`P<n>.<slug>`), value (the multi-line principle body), severity, rule_block. Decode `\n` and `\|` via `ss_proposal_decode`.
+4. Write the principles section of `constitution.md` as: extracted-and-accepted principles first (renumbered P1, P2, ... in acceptance order), followed by any v6.x defaults the user chose to keep, followed by the `<!-- ss:user-additions -->` block.
+5. Each principle's rule_block (when non-empty) is emitted verbatim as part of that principle's section so `generate_constitutional_hooks` (the existing `generate_constitutional_hooks` call below) picks them up unchanged.
+
+When `EXTRACTION_AVAILABLE=false` OR `CONSTITUTION_FALLBACK=true`, the v6.x branching logic below applies unchanged.
 
 **Branching logic by mode** (`CONSTITUTION_MODE` set in Step 1.6, defaults to `normal`):
 
@@ -1427,6 +1574,21 @@ without a second pass over memory directories.
 -->
 
 ### Step 5: Create, reconcile, or augment .specswarm/tech-stack.md
+
+**v7.0.0 prelude — consume accepted proposals when available:**
+
+When `EXTRACTION_AVAILABLE=true` AND `TECH_STACK_FALLBACK=false`, the tech-stack-extractor proposed values for framework, language, build tool, etc. in Step 4.0 and the user accepted some in Step 4.2. Use those values to populate `tech-stack.md` placeholders in preference to the v6.x interactive-answer defaults captured in Step 2/3.
+
+**LLM action (only when both flags above are favorable):**
+
+1. Read `.specswarm/.proposals.aggregated.tmp`; filter for `^tech-stack\|` records (skip `conflict-group:` markers).
+2. Read `.specswarm/.acceptance-log.tmp`; restrict to accepted decisions.
+3. Build a map of `key → value` from the accepted set: `framework → "React Router"`, `framework_version → "7.2.1"`, etc.
+4. When the canonical `tech-stack.template.md` is rendered below, fill each `[PLACEHOLDER]` slot from this map. If a canonical slot has no accepted proposal, fall back to the v6.x detected/interactive value.
+5. Append any extra accepted proposals (`approved_lib.N`, `prohibited.N`, `open_decision.N`) into the appropriate sections (Approved libraries, Prohibited technologies, Open decisions) inside the `<!-- ss:user-additions -->` block region so they survive future `/ss:init` re-runs via `ss_preserve_user_sections`.
+6. For each value written from a proposal, emit a sibling HTML comment with the citation: `<!-- source: docs/STRATEGY.md:42, confidence=high -->`.
+
+When `EXTRACTION_AVAILABLE=false` OR `TECH_STACK_FALLBACK=true`, the v6.x flow below applies unchanged.
 
 Behavior depends on `TECH_STACK_MODE` (set in Step 1.6, defaults to `normal`):
 
@@ -1579,6 +1741,21 @@ fi  # end: if [ "$TECH_STACK_MODE" != "keep" ]
 ---
 
 ### Step 6: Create, reconcile, or augment .specswarm/quality-standards.md
+
+**v7.0.0 prelude — consume accepted proposals when available:**
+
+When `EXTRACTION_AVAILABLE=true` AND `QUALITY_FALLBACK=false`, the quality-standards-extractor proposed values for coverage threshold, perf budgets, a11y baseline, etc. in Step 4.0 and the user accepted some in Step 4.2.
+
+**LLM action (only when both flags above are favorable):**
+
+1. Read `.specswarm/.proposals.aggregated.tmp`; filter for `^quality-standards\|` records (skip `conflict-group:` markers).
+2. Read `.specswarm/.acceptance-log.tmp`; restrict to accepted decisions.
+3. Build a map of `key → value` from the accepted set.
+4. Fill `quality-standards.template.md` placeholders from the map; fall back to v6.x quality-level defaults (`Strict` / `Medium` / `Relaxed` from Step 3) where the map has no entry.
+5. Append extra accepted proposals (`audit_required.N`, `build_guardrail.N`, `pre_merge_check.N`, `perf_budget.<key>` for non-canonical keys) into the `<!-- ss:user-additions -->` block region.
+6. For each value written from a proposal, emit a sibling HTML comment with the citation: `<!-- source: docs/BUDGETS.md:§performance-budgets, confidence=high -->`.
+
+When `EXTRACTION_AVAILABLE=false` OR `QUALITY_FALLBACK=true`, the v6.x flow below applies unchanged.
 
 Same `QUALITY_MODE`-driven branching as Step 5 (`keep` / `reset` / `augment` / `normal`).
 
@@ -1988,6 +2165,34 @@ echo "      └─ +$ACCEPTED_COUNT principle(s) imported from memory"
 fi
 echo "   ✓ .specswarm/tech-stack.md        (approved technologies)"
 echo "   ✓ .specswarm/quality-standards.md (quality gates)"
+
+# v7.0.0: extraction summary
+if [ "${EXTRACTION_AVAILABLE:-false}" = true ]; then
+  echo ""
+  echo "🚀 Spec-corpus extraction (v7.0.0):"
+  if [ -s "$REPO_ROOT/.specswarm/.proposals.aggregated.tmp" ]; then
+    AGG_FILE="$REPO_ROOT/.specswarm/.proposals.aggregated.tmp"
+    while IFS=$'\t' read -r dest total high medium low; do
+      [ -z "$dest" ] && continue
+      printf "   • %-22s %d proposals  (H:%d M:%d L:%d)\n" "$dest:" "$total" "$high" "$medium" "$low"
+    done < <(ss_proposals_count_by_destination "$AGG_FILE" 2>/dev/null)
+    CONFLICT_COUNT=$(ss_proposals_count_conflicts "$AGG_FILE" 2>/dev/null)
+    if [ "${CONFLICT_COUNT:-0}" -gt 0 ]; then
+      echo "   • Conflicts resolved:    $CONFLICT_COUNT"
+    fi
+    if [ -f "$REPO_ROOT/.specswarm/.acceptance-log.tmp" ]; then
+      ACC_TOTAL=$(wc -l < "$REPO_ROOT/.specswarm/.acceptance-log.tmp" 2>/dev/null | tr -d ' ')
+      DEFERRED=$(grep -c $'\tdefer\t' "$REPO_ROOT/.specswarm/.acceptance-log.tmp" 2>/dev/null || echo 0)
+      echo "   • Acceptance decisions:  $ACC_TOTAL (deferred: $DEFERRED — see TODO comments in foundation files)"
+    fi
+    # Cleanup tmp files on a successful run
+    rm -f "$REPO_ROOT/.specswarm/.discovery.tmp" \
+          "$REPO_ROOT/.specswarm/.proposals."*.tmp \
+          "$REPO_ROOT/.specswarm/.acceptance-log.tmp"
+  fi
+fi
+
+
 echo "   ✓ .specswarm/conventions.md       (code style & patterns)"
 if [ -f "$REPO_ROOT/.specswarm/references.md" ]; then
 echo "   ✓ .specswarm/references.md        (external authoritative sources)"
