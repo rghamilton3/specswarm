@@ -41,13 +41,22 @@ fi
 # ss_proposal_decode
 # -----------------------------------------------------------------------------
 # Reverse the in-block encoding the normalizer applies:
-#   "\n" (backslash + n) → real newline
-#   "\|" (backslash + pipe) → real pipe
-# The pipe-escape exists so iter callbacks can use IFS=`|` to split records
-# without truncating values whose BLOCK content contains literal pipes
-# (e.g. regex alternations like `(info|warn)`).
+#   "\n" (backslash + n)       → real newline
+#   ASCII US 0x1F (unit sep.)  → real pipe
+#
+# The pipe-sentinel is the US byte (chosen specifically because it almost
+# never appears in real text; bash IFS='|' read can then split records
+# without truncating values whose BLOCK content contains literal pipes,
+# e.g. regex alternations like `(info|warn)`. The on-disk .tmp form stores
+# `\|` (backslash+pipe) for human readability — normalize swaps that for
+# US during the in-flight phase that iter/aggregator/etc. operate on.
+#
+# Callers receiving fields from ss_proposal_iter call this to restore the
+# real bytes if they need to write them out.
 ss_proposal_decode() {
-  printf '%s' "$1" | sed -e 's/\\|/|/g' -e 's/\\n/\n/g'
+  # Order matters: replace US first (it might appear in $1 from iter output),
+  # then the backslash-pipe form (in case caller passes raw on-disk text).
+  printf '%s' "$1" | sed -e $'s/\x1F/|/g' -e 's/\\\\|/|/g' -e 's/\\\\n/\n/g'
 }
 
 # -----------------------------------------------------------------------------
@@ -93,11 +102,16 @@ __ss_agg_normalize() {
           post_block = 1   # next line is continuation OR start of new record
           next
         }
-        # Escape pipes inside block content so downstream IFS=`|` splitters
-        # do not mistake regex alternations / inline pipes for field
-        # delimiters. ss_proposal_decode reverses this.
+        # Pipes inside block content get converted to ASCII US (0x1F, unit
+        # separator) so downstream IFS=`|` splitters do not mistake regex
+        # alternations / inline pipes for field delimiters. The choice of
+        # US is deliberate: backslash-pipe (the original v7-rc.4 approach)
+        # does NOT survive bash IFS splitting because bash treats the
+        # backslash as a literal byte rather than an escape. US never appears
+        # in real source text, so this byte is safe as a transport sentinel.
+        # ss_proposal_decode reverses this conversion.
         encoded = line
-        gsub(/\|/, "\\|", encoded)
+        gsub(/\|/, "\037", encoded)
         if (block_buf == "") {
           block_buf = encoded
         } else {
@@ -353,6 +367,40 @@ ss_proposals_count_conflicts() {
   local agg_file="$1"
   [ -f "$agg_file" ] || { echo 0; return 0; }
   grep -c '^conflict-group:' "$agg_file" 2>/dev/null || echo 0
+}
+
+# -----------------------------------------------------------------------------
+# ss_proposals_audit_shifted
+# -----------------------------------------------------------------------------
+# Detect field-shifted records (records whose pipe count does not match the
+# expected destination shape) and emit one TSV line per shifter:
+#   <destination>\t<key>\t<expected-pipes>\t<actual-pipes>
+# A shifter indicates extractor-side malformed output — typically a value or
+# rationale field that contains a literal `|` but was not BLOCK-wrapped.
+# The aggregator's iter callbacks will silently produce wrong fields on
+# shifters; this audit surfaces them so the Step 4.2 acceptance UI can flag
+# the proposal for manual review (or skip it).
+#
+# Usage: ss_proposals_audit_shifted <agg_file>
+# Returns 0 always. Emits empty output when no shifters present.
+ss_proposals_audit_shifted() {
+  local agg_file="$1"
+  [ -f "$agg_file" ] || return 0
+
+  awk -F'|' '
+    /^conflict-group:/ { next }
+    /^#/ { next }
+    /^$/ { next }
+    {
+      dest = $1
+      key  = $2
+      pipes = NF - 1
+      expected = (dest == "constitution") ? 7 : 5
+      if (pipes != expected) {
+        printf "%s\t%s\t%d\t%d\n", dest, key, expected, pipes
+      }
+    }
+  ' "$agg_file"
 }
 
 # -----------------------------------------------------------------------------

@@ -32,6 +32,20 @@ __SS_CITE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Internal: resolve <citation> into path, line, section components.
 # Sets globals __cite_path, __cite_line_start, __cite_line_end, __cite_section.
 # Returns 0 on parseable form, 2 on empty / malformed.
+#
+# Accepts both canonical and lenient citation forms (a v7.0.0-rc.4 finding:
+# extractors emit space-separated and composite forms too):
+#   docs/STRATEGY.md
+#   docs/STRATEGY.md:42
+#   docs/STRATEGY.md:42-58
+#   docs/STRATEGY.md:§framework
+#   docs/STRATEGY.md:42:§framework
+#   docs/STRATEGY.md §framework         (space-separated, lenient)
+#   docs/RULES.md R4                    (space-separated free-text anchor)
+#   docs/RULES.md:R4                    (colon + free-text anchor)
+#
+# Composite forms ("a + b" or "a, b") are handled by ss_citation_verify by
+# splitting and verifying each component independently.
 __ss_cite_parse() {
   local cit="$1"
   __cite_path=""
@@ -41,13 +55,26 @@ __ss_cite_parse() {
 
   [ -z "$cit" ] && return 2
 
-  # Split off section anchor first (everything after :§)
+  # Lenient: convert space-separated `<path> <anchor>` to colon form when the
+  # leading whitespace-free token is a recognizable path (contains `/` or
+  # ends in a common extension) and the trailer is non-empty.
+  if [[ "$cit" =~ ^([^[:space:]]+\.(md|mdx|json|ts|tsx|js|jsx|sh|yaml|yml|toml|lock))[[:space:]]+(.+)$ ]]; then
+    cit="${BASH_REMATCH[1]}:${BASH_REMATCH[3]}"
+  fi
+
+  # Strip an opening "§" from the anchor portion (after `:` if any) and treat
+  # the rest as a section anchor.
   if [[ "$cit" == *":§"* ]]; then
     __cite_section="${cit##*:§}"
     cit="${cit%:§*}"
+  elif [[ "$cit" == *":"* ]]; then
+    local tail="${cit##*:}"
+    case "$tail" in
+      §*) __cite_section="${tail#§}"; cit="${cit%:*}" ;;
+    esac
   fi
 
-  # Split path:line / path:line-range / path
+  # Split path:line / path:line-range / path:free-text
   if [[ "$cit" == *:* ]]; then
     __cite_path="${cit%:*}"
     local tail="${cit##*:}"
@@ -57,8 +84,11 @@ __ss_cite_parse() {
     elif [[ "$tail" =~ ^[0-9]+$ ]]; then
       __cite_line_start="$tail"
       __cite_line_end="$tail"
+    elif [ -n "$tail" ] && [ -z "$__cite_section" ]; then
+      # Free-text anchor (e.g. "R4", "Coverage", "Per-page Core Web Vitals") —
+      # treat as a section-anchor to grep for in the file's headings.
+      __cite_section="$tail"
     else
-      # `:` present but tail not a line spec — treat whole thing as path
       __cite_path="$cit"
     fi
   else
@@ -76,6 +106,26 @@ ss_citation_verify() {
   local cit="$1"
   local repo_root
   repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+  # Composite citation: "a + b" or "a, b" — verify each part; pass if ANY resolve.
+  if [[ "$cit" == *" + "* ]] || [[ "$cit" == *", "* ]]; then
+    local part rc=1
+    # Split on " + " first, then ", "
+    local IFS_save="$IFS"
+    local cleaned="${cit//, / + }"
+    IFS=$'\v'
+    local parts
+    parts="$(echo "$cleaned" | sed 's/ + /\v/g')"
+    while IFS= read -r part; do
+      [ -z "$part" ] && continue
+      if ss_citation_verify "$part" 2>/dev/null; then
+        IFS="$IFS_save"
+        return 0
+      fi
+    done < <(printf '%s' "$parts" | tr '\v' '\n')
+    IFS="$IFS_save"
+    return 1
+  fi
 
   if ! __ss_cite_parse "$cit"; then
     return 2

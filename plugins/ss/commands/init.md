@@ -1128,11 +1128,13 @@ Agent({
 > - `<citation>` is `<repo-relative-path>` or `<repo-relative-path>:<line-or-§section>`.
 > - `<rationale>` is free text on one line.
 >
-> If any field contains a newline, a literal `|`, or the markers themselves, wrap the field in:
+> **CRITICAL — BLOCK-wrap rule:** If any field (value, rationale, or any other) contains EVEN ONE literal `|` character — even inside a quoted code snippet, even inside a regex alternation like `(get|post)`, even inside backticks — you MUST wrap that field in `<<<BLOCK ... BLOCK` markers. Do NOT inline pipe characters in fields. Common failure modes the v7.0.0-rc.4 acceptance test caught: writing `db.insert|update|delete` directly in a value field (must be BLOCK-wrapped) and writing regex patterns like `await\s+db\.(insert|update|delete)\(` inline in a rationale field (must be BLOCK-wrapped). Newlines also require BLOCK-wrap.
+>
+> Wrapped form:
 >
 > ```
 > <<<BLOCK
-> ...content...
+> ...content with embedded pipes or newlines is fine here...
 > BLOCK
 > ```
 >
@@ -1178,6 +1180,8 @@ Agent({
 > Where `<key>` is one of: `coverage_threshold`, `perf_budget.<category>`, `browser_support_floor`, `a11y_wcag_level`, `a11y_axe_required`, `a11y_screen_reader_gate`, `a11y_contrast`, `a11y_focus_visible`, `a11y_touch_targets`, `a11y_reduced_motion`, `error_handling_pattern`, `email_deliverability_target`, `audit_required.<n>`, `build_guardrail.<n>`, `pre_merge_check.<n>`.
 >
 > Same confidence rules and BLOCK-wrap rules as the tech-stack extractor.
+>
+> **CRITICAL — BLOCK-wrap rule (same as tech-stack):** ANY field containing a literal `|` MUST be wrapped in `<<<BLOCK ... BLOCK`, including pipes embedded in code text like `db.insert|update|delete` or regex alternations. Do NOT rely on backslash-escape — bash field splitting ignores the backslash and your record will be malformed.
 >
 > Cap 50 records. Skip duplicates (prefer highest confidence).
 >
@@ -1284,6 +1288,8 @@ This subagent absorbs the v6.2.0 memory-driven principle import — there is no 
 > ```
 >
 > Skip vague rules ("write good code", "be consistent"). Focus on rules naming specific patterns, file globs, or data invariants.
+>
+> **CRITICAL — BLOCK-wrap rule:** ANY field containing a literal `|` MUST be wrapped in `<<<BLOCK ... BLOCK`. In particular: rationale fields that quote regex alternations like `db\.(insert|update|delete)\(` MUST be BLOCK-wrapped (not backslash-escaped — the backslash does not survive bash field splitting). If you would rather avoid BLOCK-wrapping the rationale, restate the regex without literal pipes (e.g., describe it as "insert/update/delete mutations"). The principle body and rule_block fields are already BLOCK-wrapped by construction; only the inline fields (key, confidence, citation, rationale, severity) need this care.
 >
 > Cap 15 principles. When done, return a brief acknowledgment: `Constitution: <N> principles (<RB> with rule blocks, <WB> warn / <BL> block).`
 
@@ -1392,6 +1398,16 @@ if [ "$EXTRACTION_AVAILABLE" = true ]; then
       echo "   ℹ️  ${d}: ${GAPS} canonical key(s) not covered by extraction (will use template defaults)"
     fi
   done
+
+  # v7.0.0-rc.5: detect field-shifted records (extractor emitted a non-BLOCK
+  # field containing a literal `|` — record will deserialize wrong).
+  SHIFTER_OUT=$(ss_proposals_audit_shifted "$AGG_FILE" 2>/dev/null)
+  if [ -n "$SHIFTER_OUT" ]; then
+    SHIFTER_COUNT=$(echo "$SHIFTER_OUT" | wc -l | tr -d ' ')
+    echo "   ⚠️  $SHIFTER_COUNT field-shifted record(s) — extractor failed to BLOCK-wrap fields containing literal pipes:"
+    echo "$SHIFTER_OUT" | head -3 | awk -F'\t' '{printf "      • %s/%s (expected %s pipes, got %s)\n", $1, $2, $3, $4}'
+    echo "      Step 4.2 will surface these as 'review required' so you can fix or skip them manually."
+  fi
 
   # v7.0.0 / FR9: citation verification — grep-verify each proposal's citation.
   # Unverifiable citations are downgraded to "review required" in the
