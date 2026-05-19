@@ -1,4 +1,4 @@
-# SpecSwarm v6.3.0
+# SpecSwarm v7.0.0
 
 Spec-driven development for Claude Code. Build → Fix → Modify → Ship, with quality gates, multi-agent orchestration, and version-controlled specs.
 
@@ -126,6 +126,29 @@ A lot happens automatically inside each command. You don't invoke these phases d
 4. **Quality threshold gate** — configurable, default 80/100
 5. **Merge to parent branch** — clean fast-forward when possible
 6. **Feature branch cleanup** — deletes the merged branch
+
+---
+
+## Spec corpus extraction (new in v7.0.0)
+
+`/ss:init` now reads your project's existing spec corpus — Strategy docs, decision logs, RULES.md, BUDGETS.md, plus Claude Code memory files — and proposes content for the four foundation files instead of asking you to re-state every decision interactively.
+
+Under the hood it dispatches subagents in parallel:
+
+- **Step 3.0** — a discovery subagent classifies the project's documentation surface (`spec-doc`, `documentation`, `config`, `memory`, `reference-codebase`, `source-code`, `noise`) and writes a structured map to `.specswarm/.discovery.tmp`.
+- **Step 4.0** — three extractor subagents (tech-stack, quality-standards, constitution) run concurrently against the discovered sources. Each returns pipe-delimited proposals with confidence ratings (`high`/`medium`/`low`) and citations.
+- **Step 4.1** — the parent aggregates proposals, deduplicates, detects cross-source conflicts, and grep-verifies citations.
+- **Step 4.2** — you see batch-accept prompts for high-confidence extractions and per-item prompts for conflicts. The total prompt count is capped (~20 per `/ss:init`).
+- **Steps 4 / 5 / 6** — accepted proposals fill canonical templates; extras land in `<!-- ss:user-additions -->` blocks that survive future re-runs.
+
+For projects without a spec corpus (just a README and `package.json`), the discovery step finds nothing relevant and extraction is skipped — `/ss:init` behaves the same as v6.4.0.
+
+**New flags:**
+
+- `--full-scan` — lift default depth bounds on Step 3.0. Use when spec docs live outside `docs/`, `specs/`, or `documentation/`.
+- `--include-user-memory` — include `user_*.md` files in extraction (default-skipped as personal context).
+
+Existing flags (`--reset`, `--minimal`, `--skip-detection`) keep their v6.4.0 semantics. `--minimal` skips discovery and extraction entirely.
 
 ---
 

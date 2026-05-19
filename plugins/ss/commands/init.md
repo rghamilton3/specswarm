@@ -11,6 +11,12 @@ args:
   - name: --reset
     description: Discard existing .specswarm guides and regenerate from scratch (backup is still taken)
     required: false
+  - name: --full-scan
+    description: (v7.0.0) Lift the default depth bounds on source discovery (Step 3.0). Use when spec docs live outside docs/, specs/, documentation/.
+    required: false
+  - name: --include-user-memory
+    description: (v7.0.0) Include user_*.md memory files in extraction (Step 4.0). Default is skip (personal context, not project rules).
+    required: false
 ---
 
 ## User Input
@@ -65,6 +71,23 @@ fi
 RESET_MODE=false
 if echo "$ARGUMENTS" | grep -q -- '--reset'; then
   RESET_MODE=true
+fi
+
+# v7.0.0: Detect --full-scan and --include-user-memory flags
+FULL_SCAN_FLAG=false
+if echo "$ARGUMENTS" | grep -q -- '--full-scan'; then
+  FULL_SCAN_FLAG=true
+fi
+
+INCLUDE_USER_MEMORY_FLAG=false
+if echo "$ARGUMENTS" | grep -q -- '--include-user-memory'; then
+  INCLUDE_USER_MEMORY_FLAG=true
+fi
+
+# Detect --minimal flag (referenced by v7.0.0 Steps 3.0 / 4.0 / 4.1 / 4.2 for short-circuit)
+MINIMAL_MODE=false
+if echo "$ARGUMENTS" | grep -q -- '--minimal'; then
+  MINIMAL_MODE=true
 fi
 
 if [ ${#EXISTING_FILES[@]} -gt 0 ]; then
@@ -440,6 +463,119 @@ If `$PRINCIPLES_CHOICE` == "Let me provide custom":
 
 ---
 
+### Step 3.0: Source Discovery (NEW in v7.0.0)
+
+**Skip this step entirely if `MINIMAL_MODE=true`.** No subagent dispatch, no `.discovery.tmp` written. Downstream steps detect the missing file and fall back to v6.4.0 filesystem scans.
+
+This step dispatches a single subagent to classify the project's documentation and configuration surface. The subagent's structured output (`.specswarm/.discovery.tmp`) is consumed by:
+
+- Step 3.5 (references) — to filter candidate spec corpus docs and reference codebases
+- Step 4.0 (extractors) — to build targeted reading lists per extractor
+- Step 6.5 (conventions analysis) — to use a pre-classified source-code inventory
+
+Parent context never sees the bulk of file content; only the structured classification summary. This is the architectural reason v7 can extract from 20K-line spec corpora without context exhaustion.
+
+```bash
+if [ "$MINIMAL_MODE" = true ]; then
+  echo "⏭️  Step 3.0 skipped — --minimal mode."
+  DISCOVERY_AVAILABLE=false
+else
+  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+  # Canonical Claude Code memory path (one per project).
+  # Path encoding: replace each "/" in absolute repo path with "-".
+  MEMORY_DIR="$HOME/.claude/projects/$(echo "$REPO_ROOT" | tr / -)/memory"
+
+  mkdir -p "$REPO_ROOT/.specswarm"
+  DISCOVERY_TMP="$REPO_ROOT/.specswarm/.discovery.tmp"
+  rm -f "$DISCOVERY_TMP"
+
+  echo ""
+  echo "🔍 Step 3.0/7 — Discovering project sources..."
+  echo "   Repo root:    $REPO_ROOT"
+  echo "   Memory dir:   $MEMORY_DIR$([ -d "$MEMORY_DIR" ] && echo "" || echo "  (not present)")"
+  echo "   Full scan:    $FULL_SCAN_FLAG"
+  echo ""
+
+  DISCOVERY_AVAILABLE=true
+fi
+```
+
+**LLM action (only when `DISCOVERY_AVAILABLE=true`):**
+
+Dispatch the source-discovery subagent via a single `Agent` tool call. The prompt body below is fed verbatim, with `<REPO_ROOT>`, `<FULL_SCAN_FLAG>`, and `<MEMORY_DIR>` interpolated from the shell variables above.
+
+```
+Agent({
+  description: "Discover and classify SpecSwarm sources",
+  subagent_type: "general-purpose",
+  prompt: <prompt body below>
+})
+```
+
+**Prompt body (ship verbatim, interpolating the three variables):**
+
+> You are SpecSwarm's source-discovery agent. Map this project's documentation and configuration surface so the main `/ss:init` flow knows what to extract from.
+>
+> Repo root: `<REPO_ROOT>`
+> Full-scan mode: `<FULL_SCAN_FLAG>` (default `false` — scan only `docs/`, `specs/`, `documentation/`, `.specswarm/specs/`, repo-root depth-1 `*.md`/`*.mdx`, and standard config files at repo root)
+> Canonical memory dir: `<MEMORY_DIR>` (consult only if it exists)
+>
+> Procedure:
+> 1. From repo root, list files respecting `.gitignore`. Skip `node_modules`, `.git`, `dist`, `build`, `vendor`, lockfiles, files > 1 MB.
+> 2. For markdown files (`.md`, `.mdx`), read the first 50 + last 20 lines to classify and draft a one-sentence summary.
+> 3. For configs (`package.json`, `tsconfig.json`, `vite.config.*`, `drizzle.config.*`, `composer.json`, `pyproject.toml`, `requirements.txt`, `go.mod`, `Gemfile`, `Cargo.toml`, …), note their presence; do not dump full contents.
+> 4. Check the canonical Claude Code memory dir — list files if present.
+> 5. Stem-filtered sibling-repo scan one level up: extract the current repo basename stem (chars before the first hyphen/underscore/dot) and list one-level-up siblings whose basename shares that stem.
+>
+> Classify each file into exactly one category:
+> - `spec-doc` — markdown describing decisions, requirements, architecture, rules
+> - `documentation` — README/CONTRIBUTING/CHANGELOG (general; not project decisions)
+> - `config` — build/tooling configuration
+> - `memory` — Claude Code memory file (`feedback_`/`project_`/`reference_`/`user_`)
+> - `reference-codebase` — external repo referenced by docs
+> - `source-code` — implementation files
+> - `noise` — lockfiles, snapshots, auto-generated, irrelevant
+>
+> Write the output to `.specswarm/.discovery.tmp` as one record per line, tab-separated:
+>
+> ```
+> <category>\t<path-relative-to-repo-root>\t<size-bytes>\t<one-sentence-summary-or-empty>
+> ```
+>
+> Spec-doc records MUST have a non-empty summary (one sentence, no embedded tabs or newlines). Other categories may have empty summaries.
+>
+> End the file with one rollup row:
+>
+> ```
+> noise-rollup\t\t<total-noise-files>\t<dominant-extensions-with-counts>
+> ```
+>
+> Cap the total at 200 classified entries plus the rollup row. Cite paths relative to repo root. Do NOT summarize entire files — one sentence each.
+>
+> When you've written the file, return a brief acknowledgment in this exact form:
+> `Discovered <N> spec-docs, <M> memory files, <K> configs, <noise-count> noise.`
+
+**After the subagent returns:**
+
+```bash
+if [ "$DISCOVERY_AVAILABLE" = true ]; then
+  if [ -s "$DISCOVERY_TMP" ]; then
+    SPEC_DOC_COUNT=$(awk -F'\t' '$1=="spec-doc"' "$DISCOVERY_TMP" | wc -l | tr -d ' ')
+    MEMORY_FILE_COUNT=$(awk -F'\t' '$1=="memory"' "$DISCOVERY_TMP" | wc -l | tr -d ' ')
+    CONFIG_COUNT=$(awk -F'\t' '$1=="config"' "$DISCOVERY_TMP" | wc -l | tr -d ' ')
+    echo "   ✓ Discovered ${SPEC_DOC_COUNT} spec-docs, ${MEMORY_FILE_COUNT} memory files, ${CONFIG_COUNT} configs."
+  else
+    echo "   ⚠️  Discovery returned no output — falling back to v6.4.0 filesystem scans for Steps 3.5/6.5."
+    DISCOVERY_AVAILABLE=false
+  fi
+fi
+```
+
+If `DISCOVERY_AVAILABLE=false` at this point (either due to `--minimal` or empty subagent output), Steps 3.5 and 6.5 use their pre-v7 filesystem-scan code paths.
+
+---
+
 ### Step 3.5: References Discovery & Reconciliation
 
 **Skip this step if `--minimal` flag is present, or if `REFERENCES_MODE=keep`.**
@@ -524,6 +660,27 @@ fi
 
 # Auto-discovery: candidates accumulated as TSV (kind|name|path|verify-file|rationale)
 DISCOVERED=()
+
+# 0. (v7.0.0) Discovery-output consumer — preferred over static pattern scan when available
+#    Reads .specswarm/.discovery.tmp (written by Step 3.0) and adds:
+#      - spec-doc records as "spec|<basename>|<rel-path>||"
+#      - reference-codebase records as "codebase|<name>|<path>|README.md|<one-sentence-summary>"
+#    The static scans below (sections 1, 2, 3) still run; they catch anything discovery missed.
+if [ "${DISCOVERY_AVAILABLE:-false}" = true ] && [ -s "$REPO_ROOT/.specswarm/.discovery.tmp" ]; then
+  echo "🔄 Step 3.5: consuming discovery output for candidate filtering..."
+  while IFS=$'\t' read -r category path size summary; do
+    case "$category" in
+      spec-doc)
+        [ -z "$path" ] && continue
+        DISCOVERED+=("spec|$(basename "$path")|$path||")
+        ;;
+      reference-codebase)
+        [ -z "$path" ] && continue
+        DISCOVERED+=("codebase|$(basename "$path")|$path|README.md|${summary:-Reference codebase (from discovery)}")
+        ;;
+    esac
+  done < "$REPO_ROOT/.specswarm/.discovery.tmp"
+fi
 
 # 1. Sibling git repos that share a name stem with the current repo
 #    (Stem = chars before first hyphen/underscore/dot in the current repo's basename.
@@ -826,7 +983,543 @@ echo ""
 
 ---
 
+### Step 4.0: Parallel Extraction (NEW in v7.0.0)
+
+**Skip this step entirely if any of the following:**
+- `MINIMAL_MODE=true` (no interactive flow; no point dispatching extractors)
+- `DISCOVERY_AVAILABLE=false` (no `.discovery.tmp` to drive reading lists)
+- The discovery output contains zero `spec-doc` records AND zero `memory` records (nothing to extract from beyond config files; the v6.x defaults cover that case adequately)
+
+When skipped, the three per-destination fallback flags below are set to `true` and Steps 4, 5, 6 use their v6.4.0 code paths.
+
+This step dispatches three extractor subagents **in a single message with three `Agent` tool calls** so they run concurrently. Each one reads only its targeted slice of `.discovery.tmp` and writes proposals to `.specswarm/.proposals.<destination>.tmp` per the pipe-delimited record format in `plugins/ss/lib/extraction-schema.sh` and the design doc `data-model.md`.
+
+```bash
+EXTRACTION_AVAILABLE=false
+TECH_STACK_FALLBACK=true
+QUALITY_FALLBACK=true
+CONSTITUTION_FALLBACK=true
+
+if [ "$MINIMAL_MODE" = true ]; then
+  echo "⏭️  Step 4.0 skipped — --minimal mode."
+elif [ "${DISCOVERY_AVAILABLE:-false}" != true ]; then
+  echo "⏭️  Step 4.0 skipped — discovery output unavailable (Step 3.0 produced no .discovery.tmp)."
+elif [ ! -s "$REPO_ROOT/.specswarm/.discovery.tmp" ]; then
+  echo "⏭️  Step 4.0 skipped — discovery output empty."
+else
+  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  DISCOVERY_TMP="$REPO_ROOT/.specswarm/.discovery.tmp"
+
+  # Count spec-doc and memory records — if both are zero, skip extraction.
+  SPEC_DOC_COUNT=$(awk -F'\t' '$1=="spec-doc"' "$DISCOVERY_TMP" | wc -l | tr -d ' ')
+  MEMORY_COUNT=$(awk -F'\t'   '$1=="memory"'   "$DISCOVERY_TMP" | wc -l | tr -d ' ')
+
+  if [ "${SPEC_DOC_COUNT:-0}" -eq 0 ] && [ "${MEMORY_COUNT:-0}" -eq 0 ]; then
+    echo "ℹ️  Step 4.0 skipped — no spec-docs or memory files discovered. Foundation files will be generated from auto-detect + interactive defaults (v6.x parity)."
+  else
+    echo ""
+    echo "🚀 Step 4.0/7 — Extracting foundation-file proposals (3 subagents in parallel)..."
+    echo "   Spec-docs:    $SPEC_DOC_COUNT"
+    echo "   Memory files: $MEMORY_COUNT"
+    echo "   User memory:  $([ "$INCLUDE_USER_MEMORY_FLAG" = true ] && echo "included (--include-user-memory)" || echo "skipped (default)")"
+    echo ""
+
+    # Build the three filtered reading lists from .discovery.tmp.
+    #
+    # All three subagents receive a single concatenated text blob each, with
+    # one path per line, prefixed by category. Each subagent decides which
+    # subset of its list to read deeply.
+
+    #
+    # Common: all spec-doc paths (every extractor benefits from spec-doc context)
+    #
+    SPEC_DOCS_LIST=$(awk -F'\t' '$1=="spec-doc" {print $2}' "$DISCOVERY_TMP")
+
+    #
+    # Common: config files (tech-stack extractor needs these the most)
+    #
+    CONFIG_LIST=$(awk -F'\t' '$1=="config" {print $2}' "$DISCOVERY_TMP")
+
+    #
+    # Memory routing — default skips user_*.md; --include-user-memory flag opts in.
+    #
+    if [ "$INCLUDE_USER_MEMORY_FLAG" = true ]; then
+      MEMORY_LIST=$(awk -F'\t' '$1=="memory" {print $2}' "$DISCOVERY_TMP")
+    else
+      MEMORY_LIST=$(awk -F'\t' '$1=="memory" && $2 !~ /\/user_[^/]+\.md$/ {print $2}' "$DISCOVERY_TMP")
+    fi
+
+    # Subagent-specific memory filters
+    TECH_MEMORY=$(echo "$MEMORY_LIST" | grep -E '/project_(tech|.*stack.*|.*framework.*|.*decisions.*)' || true)
+    QUALITY_MEMORY=$(echo "$MEMORY_LIST" | grep -E '/project_(perf|a11y|quality|.*budget.*)'         || true)
+    CONST_FEEDBACK=$(echo "$MEMORY_LIST" | grep -E '/feedback_'                                     || true)
+    CONST_PROJECT_CANDIDATES=$(echo "$MEMORY_LIST"  | grep -E '/project_' || true)
+    # Constitution extractor's prompt instructs it to skim project_*.md and
+    # include only those that show enforceable-rule shape.
+
+    EXTRACTION_AVAILABLE=true
+  fi
+fi
+```
+
+**LLM action (only when `EXTRACTION_AVAILABLE=true`):**
+
+Issue **a single assistant message with THREE `Agent` tool calls**, interpolating the per-extractor reading lists. Parallel dispatch is verified working as of 2026-05-18 (see `research.md` R1); the three subagents start within ~1–2s of each other and run concurrently.
+
+```
+Agent({
+  description: "Extract tech-stack proposals from spec corpus",
+  subagent_type: "general-purpose",
+  prompt: <tech-stack extractor prompt below, with reading list interpolated>
+})
+Agent({
+  description: "Extract quality-standards proposals from spec corpus",
+  subagent_type: "general-purpose",
+  prompt: <quality-standards extractor prompt below>
+})
+Agent({
+  description: "Extract constitution principles from spec corpus + memory",
+  subagent_type: "general-purpose",
+  prompt: <constitution extractor prompt below>
+})
+```
+
+**Tech-stack extractor prompt (verbatim):**
+
+> You are SpecSwarm's tech-stack extractor. Read project sources and propose content for `.specswarm/tech-stack.md`.
+>
+> Reading list (read in full, or via grep where files exceed 2000 lines):
+>
+> Spec docs:
+> ```
+> <SPEC_DOCS_LIST>
+> ```
+>
+> Memory (tech-relevant):
+> ```
+> <TECH_MEMORY>
+> ```
+>
+> Configs:
+> ```
+> <CONFIG_LIST>
+> ```
+>
+> Identify:
+> 1. Framework (name + version + rationale)
+> 2. Language (name + version + strict flags + rationale)
+> 3. Build tool (name + version + rationale)
+> 4. State management approach
+> 5. Styling approach
+> 6. Testing tools (unit / integration / e2e — each)
+> 7. Approved libraries (positive list)
+> 8. Prohibited technologies (negative list — "do not use X", "rejected over Y")
+> 9. Open tech decisions (`[OPEN]` markers tied to tech choices with phase deadlines)
+>
+> Output your proposals to `.specswarm/.proposals.tech-stack.tmp` as pipe-delimited records:
+>
+> ```
+> tech-stack|<key>|<value>|<confidence>|<citation>|<rationale>
+> ```
+>
+> Where:
+> - `<key>` is one of: `framework`, `framework_version`, `language`, `language_version`, `language_strict_flags`, `build_tool`, `build_tool_version`, `state_mgmt`, `styling`, `unit_test`, `integration_test`, `e2e_test`, `approved_lib.<n>`, `prohibited.<n>`, `open_decision.<n>` (positional indices for repeated keys, n=1,2,3,...).
+> - `<confidence>` ∈ {`high` (explicit + version + `[DECIDED]` marker), `medium` (explicit, no decision marker), `low` (inferred)}.
+> - `<citation>` is `<repo-relative-path>` or `<repo-relative-path>:<line-or-§section>`.
+> - `<rationale>` is free text on one line.
+>
+> **CRITICAL — BLOCK-wrap rule:** If any field (value, rationale, or any other) contains EVEN ONE literal `|` character — even inside a quoted code snippet, even inside a regex alternation like `(get|post)`, even inside backticks — you MUST wrap that field in `<<<BLOCK ... BLOCK` markers. Do NOT inline pipe characters in fields. Common failure modes the v7.0.0-rc.4 acceptance test caught: writing `db.insert|update|delete` directly in a value field (must be BLOCK-wrapped) and writing regex patterns like `await\s+db\.(insert|update|delete)\(` inline in a rationale field (must be BLOCK-wrapped). Newlines also require BLOCK-wrap.
+>
+> Wrapped form:
+>
+> ```
+> <<<BLOCK
+> ...content with embedded pipes or newlines is fine here...
+> BLOCK
+> ```
+>
+> The `BLOCK` closer MUST sit alone on its line; the next field delimiter `|` continues on the following line.
+>
+> Cap 60 records. Skip duplicates within your own output (prefer highest confidence on collision).
+>
+> When you've written the file, return a brief acknowledgment: `Tech-stack: <N> proposals (<H> high / <M> medium / <L> low).`
+
+**Quality-standards extractor prompt (verbatim):**
+
+> You are SpecSwarm's quality-standards extractor. Propose content for `.specswarm/quality-standards.md`.
+>
+> Reading list (read in full, or via grep where files exceed 2000 lines):
+>
+> Spec docs:
+> ```
+> <SPEC_DOCS_LIST>
+> ```
+>
+> Memory (quality-relevant):
+> ```
+> <QUALITY_MEMORY>
+> ```
+>
+> Identify:
+> 1. Coverage thresholds (target %)
+> 2. Performance budgets (per-page LCP/TBT/CLS, asset budgets, bundle limits)
+> 3. Browser support floor
+> 4. Accessibility (WCAG level, axe-core, screen reader gates, contrast, focus visible, touch targets, reduced-motion)
+> 5. Error handling pattern (N-layer model, anti-patterns)
+> 6. Email deliverability targets
+> 7. Audit/logging required behaviors
+> 8. Build-time guardrails (TS strict flags, ESLint rules, migration linting)
+> 9. Pre-merge checklist items
+>
+> Output your proposals to `.specswarm/.proposals.quality-standards.tmp` as pipe-delimited records:
+>
+> ```
+> quality-standards|<key>|<value>|<confidence>|<citation>|<rationale>
+> ```
+>
+> Where `<key>` is one of: `coverage_threshold`, `perf_budget.<category>`, `browser_support_floor`, `a11y_wcag_level`, `a11y_axe_required`, `a11y_screen_reader_gate`, `a11y_contrast`, `a11y_focus_visible`, `a11y_touch_targets`, `a11y_reduced_motion`, `error_handling_pattern`, `email_deliverability_target`, `audit_required.<n>`, `build_guardrail.<n>`, `pre_merge_check.<n>`.
+>
+> Same confidence rules and BLOCK-wrap rules as the tech-stack extractor.
+>
+> **CRITICAL — BLOCK-wrap rule (same as tech-stack):** ANY field containing a literal `|` MUST be wrapped in `<<<BLOCK ... BLOCK`, including pipes embedded in code text like `db.insert|update|delete` or regex alternations. Do NOT rely on backslash-escape — bash field splitting ignores the backslash and your record will be malformed.
+>
+> Cap 50 records. Skip duplicates (prefer highest confidence).
+>
+> When you've written the file, return a brief acknowledgment: `Quality-standards: <N> proposals (<H> high / <M> medium / <L> low).`
+
+**Constitution extractor prompt (verbatim):**
+
+This subagent absorbs the v6.2.0 memory-driven principle import — there is no longer a separate Step 4.5. Single extraction pass over spec docs + feedback memory + selected project memory.
+
+> You are SpecSwarm's constitution extractor. Propose content for `.specswarm/constitution.md`.
+>
+> Reading list:
+>
+> Spec docs (read in full or via grep > 2000 lines):
+> ```
+> <SPEC_DOCS_LIST>
+> ```
+>
+> Feedback memory (high-yield — read ALL of these in full):
+> ```
+> <CONST_FEEDBACK>
+> ```
+>
+> Project memory candidates (skim each; include in extraction ONLY if it shows enforceable-rule shape — imperative verbs, file globs, data invariants. Skip pure-context project files like activity logs, current-state trackers, contact info):
+> ```
+> <CONST_PROJECT_CANDIDATES>
+> ```
+>
+> Identify project-specific ENFORCEABLE rules. Look for imperative language:
+> - "must NEVER", "always", "required to", "forbidden", "only", "every X must Y", "we do not …", "the system rejects …"
+>
+> For each candidate principle:
+>
+> 1. Draft a declarative principle body in this exact shape:
+>
+>    ```
+>    ### P<n>. <Short name>
+>
+>    <Body — declarative form, 1-3 sentences>
+>
+>    **Why:** <Rationale from source>
+>    ```
+>
+>    Number P1, P2, ... sequentially.
+>
+> 2. Propose a constitutional-hook rule block ONLY if mechanically enforceable. Use one of three formats:
+>
+>    ```
+>    <!-- specswarm-rule: no-pattern -->
+>    <!-- path-glob: <glob> -->
+>    <!-- bad-pattern: <regex> -->
+>    <!-- summary: <text> -->
+>    <!-- severity: warn|block -->
+>    ```
+>
+>    ```
+>    <!-- specswarm-rule: required-pattern -->
+>    <!-- path-glob: <glob> -->
+>    <!-- required-pattern: <regex> -->
+>    <!-- summary: <text> -->
+>    <!-- severity: warn|block -->
+>    ```
+>
+>    ```
+>    <!-- specswarm-rule: required-pair -->
+>    <!-- path-glob: <glob> -->
+>    <!-- trigger-pattern: <regex> -->
+>    <!-- pair-pattern: <regex> -->
+>    <!-- summary: <text> -->
+>    <!-- severity: warn|block -->
+>    ```
+>
+>    Use the source file's actual content to inform the regex/glob — do NOT invent values. If the rule is real but not mechanically enforceable, leave the rule_block field empty.
+>
+> 3. Tag severity:
+>    - `block` for non-recoverable rules (compliance, trade-secret, security)
+>    - `warn` for everything else
+>
+> 4. Cite source: `<file>:<§section-or-line>` and a 1-line quote in the rationale field.
+>
+> Output your proposals to `.specswarm/.proposals.constitution.tmp` as pipe-delimited records WITH two trailing fields (severity, rule_block):
+>
+> ```
+> constitution|P<n>.<slug>|<<<BLOCK
+> ### P<n>. <Short name>
+>
+> <Body>
+>
+> **Why:** <Rationale>
+> BLOCK
+> |<confidence>|<citation>|<rationale>|<severity>|<<<BLOCK
+> <!-- specswarm-rule: ... -->
+> ...
+> BLOCK
+> ```
+>
+> Or with empty rule_block (real but not mechanically enforceable):
+>
+> ```
+> constitution|P<n>.<slug>|<<<BLOCK
+> ...principle body...
+> BLOCK
+> |<confidence>|<citation>|<rationale>|<severity>|
+> ```
+>
+> Skip vague rules ("write good code", "be consistent"). Focus on rules naming specific patterns, file globs, or data invariants.
+>
+> **CRITICAL — BLOCK-wrap rule:** ANY field containing a literal `|` MUST be wrapped in `<<<BLOCK ... BLOCK`. In particular: rationale fields that quote regex alternations like `db\.(insert|update|delete)\(` MUST be BLOCK-wrapped (not backslash-escaped — the backslash does not survive bash field splitting). If you would rather avoid BLOCK-wrapping the rationale, restate the regex without literal pipes (e.g., describe it as "insert/update/delete mutations"). The principle body and rule_block fields are already BLOCK-wrapped by construction; only the inline fields (key, confidence, citation, rationale, severity) need this care.
+>
+> Cap 15 principles. When done, return a brief acknowledgment: `Constitution: <N> principles (<RB> with rule blocks, <WB> warn / <BL> block).`
+
+**After all three subagents return** (parent flow resumes):
+
+```bash
+# Verify each proposals file; set fallback flags.
+TECH_PROP="$REPO_ROOT/.specswarm/.proposals.tech-stack.tmp"
+QUAL_PROP="$REPO_ROOT/.specswarm/.proposals.quality-standards.tmp"
+CONST_PROP="$REPO_ROOT/.specswarm/.proposals.constitution.tmp"
+
+if [ "$EXTRACTION_AVAILABLE" = true ]; then
+  if [ -s "$TECH_PROP" ]; then
+    TECH_STACK_FALLBACK=false
+    TECH_COUNT=$(grep -c '^tech-stack|' "$TECH_PROP" 2>/dev/null || echo 0)
+    echo "   ✓ Tech-stack:        $TECH_COUNT proposals"
+  else
+    echo "   ⚠️  tech-stack-extractor returned no proposals — falling back to v6.x interactive flow for tech-stack."
+  fi
+
+  if [ -s "$QUAL_PROP" ]; then
+    QUALITY_FALLBACK=false
+    QUAL_COUNT=$(grep -c '^quality-standards|' "$QUAL_PROP" 2>/dev/null || echo 0)
+    echo "   ✓ Quality-standards: $QUAL_COUNT proposals"
+  else
+    echo "   ⚠️  quality-standards-extractor returned no proposals — falling back to v6.x defaults."
+  fi
+
+  if [ -s "$CONST_PROP" ]; then
+    CONSTITUTION_FALLBACK=false
+    CONST_COUNT=$(grep -c '^constitution|' "$CONST_PROP" 2>/dev/null || echo 0)
+    echo "   ✓ Constitution:      $CONST_COUNT principles"
+  else
+    echo "   ⚠️  constitution-extractor returned no proposals — falling back to v6.2.0 memory-driven principle import for constitution."
+  fi
+fi
+```
+
+The four flags (`EXTRACTION_AVAILABLE`, `TECH_STACK_FALLBACK`, `QUALITY_FALLBACK`, `CONSTITUTION_FALLBACK`) drive Steps 4, 5, 6 behavior:
+
+- `EXTRACTION_AVAILABLE=false` → All three steps use their v6.4.0 generation paths exactly as before.
+- `<destination>_FALLBACK=true` → That step uses its v6.4.0 path; other destinations consume Step 4.1 aggregated proposals.
+- All `_FALLBACK=false` → All three steps consume Step 4.1 aggregated proposals.
+
+Step 4.1 (aggregation) and Step 4.2 (acceptance) run next; both are skipped when `EXTRACTION_AVAILABLE=false`.
+
+---
+
+### Step 4.1: Aggregation + Conflict Detection (NEW in v7.0.0)
+
+**Skip this step if `EXTRACTION_AVAILABLE=false`.**
+
+Aggregate the three `.proposals.<destination>.tmp` files into a single normalized `.specswarm/.proposals.aggregated.tmp` per `data-model.md §Format 3`:
+
+- Dedupe within and across extractors (same `destination|key` → keep highest confidence)
+- Detect conflicts (same `destination|key`, different values → emit `conflict-group:` marker followed by all candidates)
+- Sort destinations in canonical order: tech-stack → quality-standards → constitution
+
+```bash
+if [ "$EXTRACTION_AVAILABLE" = true ]; then
+  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  PLUGIN_DIR_V7="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+  AGGREGATOR_LIB="$PLUGIN_DIR_V7/lib/proposal-aggregator.sh"
+  if [ -f "$AGGREGATOR_LIB" ]; then
+    # shellcheck disable=SC1090
+    source "$AGGREGATOR_LIB"
+  else
+    echo "❌ proposal-aggregator.sh not found at $AGGREGATOR_LIB — skipping aggregation."
+    EXTRACTION_AVAILABLE=false
+  fi
+fi
+
+if [ "$EXTRACTION_AVAILABLE" = true ]; then
+  TECH_PROP="$REPO_ROOT/.specswarm/.proposals.tech-stack.tmp"
+  QUAL_PROP="$REPO_ROOT/.specswarm/.proposals.quality-standards.tmp"
+  CONST_PROP="$REPO_ROOT/.specswarm/.proposals.constitution.tmp"
+  AGG_FILE="$REPO_ROOT/.specswarm/.proposals.aggregated.tmp"
+
+  echo ""
+  echo "🧮 Step 4.1/7 — Aggregating proposals + detecting conflicts..."
+
+  # Only include proposals files that actually exist + are non-empty
+  AGG_INPUTS=()
+  [ -s "$TECH_PROP" ]  && AGG_INPUTS+=("$TECH_PROP")
+  [ -s "$QUAL_PROP" ]  && AGG_INPUTS+=("$QUAL_PROP")
+  [ -s "$CONST_PROP" ] && AGG_INPUTS+=("$CONST_PROP")
+
+  ss_proposals_aggregate "$AGG_FILE" "${AGG_INPUTS[@]}"
+
+  # Surface counts and conflicts
+  while IFS=$'\t' read -r dest total high medium low; do
+    [ -z "$dest" ] && continue
+    echo "   ✓ ${dest}: ${total} proposals (${high} high / ${medium} medium / ${low} low)"
+  done < <(ss_proposals_count_by_destination "$AGG_FILE")
+
+  CONFLICT_COUNT=$(ss_proposals_count_conflicts "$AGG_FILE")
+  if [ "${CONFLICT_COUNT:-0}" -gt 0 ]; then
+    echo "   ⚠️  ${CONFLICT_COUNT} conflict(s) detected — will be surfaced individually in Step 4.2"
+  fi
+
+  # Coverage gaps per destination — informational, not blocking
+  for d in tech-stack quality-standards; do
+    GAPS=$(ss_proposals_coverage_gaps "$d" "$AGG_FILE" | wc -l | tr -d ' ')
+    if [ "${GAPS:-0}" -gt 0 ]; then
+      echo "   ℹ️  ${d}: ${GAPS} canonical key(s) not covered by extraction (will use template defaults)"
+    fi
+  done
+
+  # v7.0.0-rc.5: detect field-shifted records (extractor emitted a non-BLOCK
+  # field containing a literal `|` — record will deserialize wrong).
+  SHIFTER_OUT=$(ss_proposals_audit_shifted "$AGG_FILE" 2>/dev/null)
+  if [ -n "$SHIFTER_OUT" ]; then
+    SHIFTER_COUNT=$(echo "$SHIFTER_OUT" | wc -l | tr -d ' ')
+    echo "   ⚠️  $SHIFTER_COUNT field-shifted record(s) — extractor failed to BLOCK-wrap fields containing literal pipes:"
+    echo "$SHIFTER_OUT" | head -3 | awk -F'\t' '{printf "      • %s/%s (expected %s pipes, got %s)\n", $1, $2, $3, $4}'
+    echo "      Step 4.2 will surface these as 'review required' so you can fix or skip them manually."
+  fi
+
+  # v7.0.0 / FR9: citation verification — grep-verify each proposal's citation.
+  # Unverifiable citations are downgraded to "review required" in the
+  # acceptance UI (Step 4.2 surfaces them with a yellow flag).
+  CITATION_VERIFIER="$PLUGIN_DIR_V7/lib/citation-verifier.sh"
+  if [ -f "$CITATION_VERIFIER" ]; then
+    # shellcheck disable=SC1090
+    source "$CITATION_VERIFIER"
+    CITE_TSV="$REPO_ROOT/.specswarm/.citation-verify.tsv"
+    ss_citation_verify_batch "$AGG_FILE" "$CITE_TSV"
+    if [ -s "$CITE_TSV" ]; then
+      VERIFIED=$(awk -F'\t' '$2=="verified"' "$CITE_TSV"   | wc -l | tr -d ' ')
+      MISSING=$(awk -F'\t'  '$2=="missing"'  "$CITE_TSV"   | wc -l | tr -d ' ')
+      MISMATCHED=$(awk -F'\t' '$2=="mismatched"' "$CITE_TSV" | wc -l | tr -d ' ')
+      TOTAL_CHECKED=$((VERIFIED + MISSING + MISMATCHED))
+      if [ "$TOTAL_CHECKED" -gt 0 ]; then
+        VERIFY_RATE=$(( (VERIFIED * 100) / TOTAL_CHECKED ))
+        echo "   🔎 Citation verification: ${VERIFIED}/${TOTAL_CHECKED} verified (${VERIFY_RATE}%)"
+        if [ "${MISSING:-0}" -gt 0 ] || [ "${MISMATCHED:-0}" -gt 0 ]; then
+          echo "      • ${MISSING} missing path(s), ${MISMATCHED} anchor mismatch(es) — surfaced as 'review required' in Step 4.2"
+        fi
+      fi
+    fi
+  fi
+fi
+```
+
+---
+
+### Step 4.2: Interactive Acceptance (NEW in v7.0.0)
+
+**Skip this step if `EXTRACTION_AVAILABLE=false`.**
+
+For each destination with proposals, surface them to the user via `AskUserQuestion` per the prompt budget defined in `research.md` R7 (~20 prompts total per `/ss:init` invocation across all destinations). The user's decisions are written to `.specswarm/.acceptance-log.tmp` and to `audit_log` for cross-session traceability.
+
+**Prompt-cap budget (target ~20 total):**
+- Up to 4 batch-accept prompts (one per destination with high-confidence non-conflicting proposals)
+- Up to ~10 per-item conflict prompts (round-robin across destinations until budget consumed)
+- Up to ~6 per-item low-confidence prompts (round-robin within remaining budget)
+- Anything beyond the budget is deferred with a TODO comment in the generated foundation file
+
+**LLM action** (only when `EXTRACTION_AVAILABLE=true`):
+
+For each destination in order (tech-stack → quality-standards → constitution):
+
+1. **Read the aggregated proposals file** (`.specswarm/.proposals.aggregated.tmp`); filter for records belonging to this destination.
+2. **Detect existing-foundation drift (v6.4.0 reconciliation):** if `.specswarm/<destination>.md` already exists and is parseable via `ss_parse_*` (from `guide-parsers.sh`), check whether each declared field matches the proposed value. When they differ, surface as a drift-detection prompt (R10):
+
+   > "tech-stack.md — `unit_test`: declared value differs from corpus
+   >   • declared: `vitest`
+   >   • corpus:   `playwright-component` (docs/STRATEGY.md:§testing-tools [DECIDED 2026-05-15])
+   >   [1] Use corpus value (Recommended) · [2] Keep declared value · [3] Skip — review later"
+
+3. **Batch-accept high-confidence proposals** (non-conflicting, no drift). If there are 3+ such proposals, present a single `AskUserQuestion`:
+
+   > "{destination}.md — {N} high-confidence decisions extracted from {top-citation}. Accept the batch?
+   >   [1] Accept all (Recommended) · [2] Review one by one · [3] Skip — fill in later"
+
+4. **Per-item conflict resolution** — for each `conflict-group:` record, present all candidate values with their citations as a single `AskUserQuestion`:
+
+   > "{destination}.md — {key}: {N} sources disagree
+   >   [1] {value-1} ({citation-1})
+   >   [2] {value-2} ({citation-2})
+   >   [3] Skip — resolve manually later
+   >   [4] Custom value"
+
+5. **Per-item low-confidence prompts** (only if the cap budget allows) — present each `low` proposal individually:
+
+   > "{destination}.md — {key}: low-confidence proposal
+   >   value: {value}
+   >   source: {citation}
+   >   [1] Accept · [2] Reject · [3] Custom value"
+
+6. **Budget exhaustion**: when the cap is reached, remaining low-confidence proposals are deferred. Each deferred proposal gets logged as `decision=defer` in `.acceptance-log.tmp`; the generated foundation file gets a `<!-- TODO (deferred): {key} — see .specswarm/.acceptance-log.tmp -->` comment under the destination's user-additions block.
+
+7. **Write decisions** to `.specswarm/.acceptance-log.tmp` (one TSV line per decision: timestamp, destination, key, decision, accepted-value-or-empty, source-citation-or-empty). Mirror each to `audit_log` for `/ss:audit` traceability.
+
+**After Step 4.2 completes**, downstream Steps 4 / 5 / 6 read accepted proposals from `.specswarm/.proposals.aggregated.tmp` filtered by `.acceptance-log.tmp` (decision in `accept`, `accept-batch`, `custom`, `drift-use-corpus`) and write the foundation files accordingly. The fallback-flag system from Step 4.0 governs which destination falls back to the v6.4.0 path.
+
+```bash
+# Parent-side: nothing more to script here — the LLM action above handles
+# the prompts. After it returns, we ensure the acceptance log was written
+# (a missing file means the LLM step was skipped due to no proposals).
+if [ "$EXTRACTION_AVAILABLE" = true ]; then
+  ACCEPT_LOG="$REPO_ROOT/.specswarm/.acceptance-log.tmp"
+  if [ ! -f "$ACCEPT_LOG" ]; then
+    # Acceptance step did not run (empty proposals after dedupe) — treat as
+    # if all destinations fell back. Downstream Steps 4/5/6 use v6.x paths.
+    TECH_STACK_FALLBACK=true
+    QUALITY_FALLBACK=true
+    CONSTITUTION_FALLBACK=true
+  fi
+fi
+```
+
+---
+
 ### Step 4: Create, reconcile, or augment .specswarm/constitution.md
+
+**v7.0.0 prelude — consume accepted proposals when available:**
+
+When `EXTRACTION_AVAILABLE=true` AND `CONSTITUTION_FALLBACK=false`, the constitution-extractor proposed principles in Step 4.0 and the user accepted some in Step 4.2. The accepted principles MUST be incorporated into the generated `constitution.md` alongside any v6.x defaults.
+
+**LLM action (only when both flags above are favorable):**
+
+1. Read `.specswarm/.proposals.aggregated.tmp`; filter for `^constitution\|` records (skip `conflict-group:` markers).
+2. Read `.specswarm/.acceptance-log.tmp`; identify which constitution proposals have a decision in `{accept, accept-batch, custom, drift-use-corpus}`.
+3. For each accepted principle, extract: principle key (`P<n>.<slug>`), value (the multi-line principle body), severity, rule_block. Decode `\n` and `\|` via `ss_proposal_decode`.
+4. Write the principles section of `constitution.md` as: extracted-and-accepted principles first (renumbered P1, P2, ... in acceptance order), followed by any v6.x defaults the user chose to keep, followed by the `<!-- ss:user-additions -->` block.
+5. Each principle's rule_block (when non-empty) is emitted verbatim as part of that principle's section so `generate_constitutional_hooks` (the existing `generate_constitutional_hooks` call below) picks them up unchanged.
+
+When `EXTRACTION_AVAILABLE=false` OR `CONSTITUTION_FALLBACK=true`, the v6.x branching logic below applies unchanged.
 
 **Branching logic by mode** (`CONSTITUTION_MODE` set in Step 1.6, defaults to `normal`):
 
@@ -910,184 +1603,32 @@ Constitution authors can opt principles into mechanical enforcement by adding HT
 
 ---
 
-### Step 4.5: Memory-Driven Principle Import (NEW in v6.2.0)
-
-**Skip this step if `--minimal` flag is present.**
-
-If the user populated memory directories in `.specswarm/references.md` (Step 3.5), this step scans those directories for `feedback_*.md` / `project_*.md` / `reference_*.md` files, surfaces them as candidate principles, and appends accepted ones to `.specswarm/constitution.md`. Skipped silently if no memory dirs are configured.
-
-The pattern: Claude Code memory files often encode opinionated rules in prose ("calculation engine math must NEVER be on the frontend") that map cleanly onto the SpecSwarm constitutional-hook format (`no-pattern-in-paths` / `required-import-in-files` / `required-pair-in-additions`). This step does that translation interactively — the user wrote the memory once, SpecSwarm proposes the mechanical enforcement, the user accepts or rejects each proposal.
-
-```bash
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-PLUGIN_DIR_SS_MEM="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOADER_MEM="${PLUGIN_DIR_SS_MEM}/lib/references-loader.sh"
-
-MEMORY_AVAILABLE=false
-
-if [ -f "$LOADER_MEM" ]; then
-  # shellcheck disable=SC1090
-  source "$LOADER_MEM"
-
-  if ss_references_exist; then
-    MEM_FILE_COUNT=$(ss_memory_scan_files | wc -l)
-    if [ "$MEM_FILE_COUNT" -gt 0 ]; then
-      MEMORY_AVAILABLE=true
-    fi
-  fi
-fi
-
-if [ "$MEMORY_AVAILABLE" = true ]; then
-  echo ""
-  echo "🧠 Memory-Driven Principle Import"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo ""
-  echo "Found $MEM_FILE_COUNT memory file(s) across declared memory directories."
-  echo ""
-  ss_memory_count_by_kind | while IFS=$'\t' read -r kind count; do
-    [ "$count" -eq 0 ] && continue
-    case "$kind" in
-      feedback)  echo "   📐 $count feedback file(s)   — opinionated rules / preferences (high principle yield)" ;;
-      project)   echo "   📋 $count project file(s)    — project state / context (lower yield)" ;;
-      reference) echo "   🔗 $count reference file(s)  — cross-references" ;;
-      user)      echo "   👤 $count user file(s)       — user-profile context" ;;
-    esac
-  done
-  echo ""
-fi
-```
-
-**If `MEMORY_AVAILABLE = true`, you (Claude) MUST do the following:**
-
-a. **Ask the user first**, before reading anything, via **AskUserQuestion**:
-
-```
-Question: "Scan memory files to propose constitution principles?"
-Header: "Memory import"
-Options:
-  1. "Yes, scan all"
-     Description: "Read every memory file and propose principles. You'll review/accept/reject each proposal individually."
-  2. "Yes, feedback files only"
-     Description: "Skip project/reference/user files — they rarely yield principles. Reads only feedback_*.md (highest yield)."
-  3. "Skip memory import"
-     Description: "Constitution stays as generated by Step 4. You can re-run /ss:init later or hand-author additions."
-```
-
-Store as `$MEMORY_SCAN_SCOPE`.
-
-b. **If `$MEMORY_SCAN_SCOPE` == "Skip memory import"**, jump straight to Step 5.
-
-c. **Otherwise, scan memory files in scope:**
-- Use `Bash` to enumerate: `ss_memory_scan_files | while read f; do kind=$(ss_memory_classify_kind "$f"); ...`
-- For "feedback files only" mode: filter to `kind == "feedback"`
-- For "scan all" mode: include feedback + project + reference (skip `user_*.md` — rarely encodes enforceable rules)
-
-d. **For each in-scope memory file**, use the `Read` tool to load its content. Then analyze: does this memory entry describe an *enforceable* rule that maps to one of the three constitutional-hook templates?
-
-   **Eligibility heuristics — propose a principle when the memory contains:**
-   - Imperative language: "must NEVER", "always", "required to", "forbidden", "only"
-   - Mechanical enforcement signal: a specific pattern that can be regex-matched in source code (e.g., import statements, function calls, file path globs)
-   - Rationale: a "why" the rule exists (the memory itself usually has this)
-
-   **Skip files that are pure context/state, not rules:**
-   - Lists of decisions made (use spec corpus consultation in /ss:specify, not constitution)
-   - Tech stack inventories (handled by tech-stack.md, not constitution)
-   - Project metadata (status, contacts, links)
-   - Memory whose enforcement would require runtime semantics, not static-text matching
-
-e. **For each eligible memory file**, draft a principle in the constitution-hook format the parser actually accepts (`lib/constitution-parser.sh`). Each rule block is a contiguous run of HTML comments, one `key: value` per line, with the rule type on the first line. Map to one of three types:
-
-   - **no-pattern** — "X must never appear in files matching Y"
-     Example (drafted from `feedback_trade_secrets.md`):
-     ```markdown
-     ### Trade-secret math is server-side only
-
-     <!-- specswarm-rule: no-pattern -->
-     <!-- path-glob: app/components/** -->
-     <!-- bad-pattern: from\s+['"].*board-calculator -->
-     <!-- summary: Trade-secret math is server-side only -->
-     <!-- severity: block -->
-     ```
-     Rationale source: `feedback_trade_secrets.md` — calculation engine math must never reach the frontend bundle. Severity=block because leakage is unrecoverable.
-
-   - **required-pattern** — "Files matching Y must contain X"
-     Example (drafted from a hypothetical `feedback_v2_reference_required.md`):
-     ```markdown
-     ### v2 source mandatory for calc-engine work
-
-     <!-- specswarm-rule: required-pattern -->
-     <!-- path-glob: app/engine/** -->
-     <!-- required-pattern: // v2-ref: customcult2/ -->
-     <!-- summary: v2 source mandatory for calc-engine work -->
-     ```
-     Rationale source: `feedback_v2_reference_required.md` — calc engine port delegates to v2 PHP as canonical. Severity default (warn) — missing tag is fixable, not a leak.
-
-   - **required-pair** — "When pattern A appears, pattern B must also appear in the same file"
-     Example (drafted from `project_admin_audit_log.md`):
-     ```markdown
-     ### Admin writes require audit_log entry
-
-     <!-- specswarm-rule: required-pair -->
-     <!-- path-glob: app/routes/admin/** -->
-     <!-- trigger-pattern: db\.(insert|update|delete) -->
-     <!-- pair-pattern: audit_log\( -->
-     <!-- summary: Admin writes require audit_log entry -->
-     <!-- severity: block -->
-     ```
-     Rationale source: `project_admin_audit_log.md` — every admin mutation logs admin_audit_log row. Severity=block because silent audit-log skipping is a compliance gap.
-
-   **Severity selection heuristic (v6.3.0).** Default to `severity: warn` (or omit the field). Propose `severity: block` when the source memory entry contains any of these gravity signals: `must NEVER`, `trade secret`, `compliance`, `audit`, `leak`, `pii`, `secret`, `forbidden`, `unrecoverable`, or explicit language indicating that a false negative produces irreversible damage. When in doubt, propose warn — the user can re-rank to block in step f below.
-
-f. **Surface each draft principle to the user** via **AskUserQuestion**, including a severity choice:
-
-```
-Question: "Add this principle to constitution.md?"
-Header: "Principle N/M"
-Options:
-  1. "Yes — add at proposed severity (<warn|block>)"
-     Description: "[show principle title + drafted severity + first line of rationale]"
-  2. "Yes — but flip severity to <opposite>"
-     Description: "Same principle, opposite severity. Pick this if you want stronger/weaker enforcement than the heuristic chose."
-  3. "Yes — but I'll edit later"
-     Description: "Add at proposed severity; you'll hand-edit the regex/glob/severity in constitution.md after init."
-  4. "No, skip this one"
-     Description: "Memory file is too prose-y / not enforceable / I'll keep this as memory only."
-```
-
-Track each accept/reject + severity choice. Cap proposals at **10 principles per init** to keep the session bounded.
-
-g. **For each accepted principle**, append it to `.specswarm/constitution.md` under a section header `## Imported from memory (auto-proposed YYYY-MM-DD)`. Don't overwrite existing sections.
-
-h. **Re-run constitutional hook generation** so the newly-imported principles get their PostToolUse hooks generated. The same `generate_constitutional_hooks` function from Step 4 is called again — it's idempotent and only creates hooks for principles that don't already have one.
-
-```bash
-if [ -f "$PLUGIN_DIR_SS_MEM/lib/constitution-parser.sh" ]; then
-  source "$PLUGIN_DIR_SS_MEM/lib/constitution-parser.sh"
-  generate_constitutional_hooks "${REPO_ROOT}/.specswarm/constitution.md" "${REPO_ROOT}/.specswarm/hooks/generated"
-  echo ""
-  echo "✅ Imported principles → generated constitutional hooks (warn + block)"
-fi
-```
-
-**Note on severity changes:** the generator preserves existing hook files (so user edits aren't clobbered). If you change a principle's severity in `constitution.md` after import, delete the corresponding file under `.specswarm/hooks/generated/` to force regeneration with the new severity.
-
-i. **Display summary**:
-```bash
-echo ""
-echo "🧠 Memory Import Summary"
-echo "   Files scanned:        $SCANNED_COUNT"
-echo "   Principles proposed:  $PROPOSED_COUNT"
-echo "   Principles accepted:  $ACCEPTED_COUNT"
-echo "   Constitution.md:      .specswarm/constitution.md"
-echo "   Generated hooks:      .specswarm/hooks/generated/"
-echo ""
-```
-
-**If `MEMORY_AVAILABLE = false`**, skip Step 4.5 entirely. Proceed to Step 5. No banner, no prompts, no constitution edits — backward-compatible with v6.1.0 behavior when no memory dirs are declared.
-
----
+<!--
+v7.0.0 note: the v6.2.0 "Step 4.5: Memory-Driven Principle Import" step was
+REMOVED. Its responsibilities were folded into the constitution extractor
+dispatched from Step 4.0 above. The extractor reads ALL feedback_*.md files
+plus selected project_*.md files (only those showing enforceable-rule shape)
+in a single extraction pass, producing principle proposals that Step 4.2
+surfaces for user acceptance — same UX outcome as the old Step 4.5 but
+without a second pass over memory directories.
+-->
 
 ### Step 5: Create, reconcile, or augment .specswarm/tech-stack.md
+
+**v7.0.0 prelude — consume accepted proposals when available:**
+
+When `EXTRACTION_AVAILABLE=true` AND `TECH_STACK_FALLBACK=false`, the tech-stack-extractor proposed values for framework, language, build tool, etc. in Step 4.0 and the user accepted some in Step 4.2. Use those values to populate `tech-stack.md` placeholders in preference to the v6.x interactive-answer defaults captured in Step 2/3.
+
+**LLM action (only when both flags above are favorable):**
+
+1. Read `.specswarm/.proposals.aggregated.tmp`; filter for `^tech-stack\|` records (skip `conflict-group:` markers).
+2. Read `.specswarm/.acceptance-log.tmp`; restrict to accepted decisions.
+3. Build a map of `key → value` from the accepted set: `framework → "React Router"`, `framework_version → "7.2.1"`, etc.
+4. When the canonical `tech-stack.template.md` is rendered below, fill each `[PLACEHOLDER]` slot from this map. If a canonical slot has no accepted proposal, fall back to the v6.x detected/interactive value.
+5. Append any extra accepted proposals (`approved_lib.N`, `prohibited.N`, `open_decision.N`) into the appropriate sections (Approved libraries, Prohibited technologies, Open decisions) inside the `<!-- ss:user-additions -->` block region so they survive future `/ss:init` re-runs via `ss_preserve_user_sections`.
+6. For each value written from a proposal, emit a sibling HTML comment with the citation: `<!-- source: docs/STRATEGY.md:42, confidence=high -->`.
+
+When `EXTRACTION_AVAILABLE=false` OR `TECH_STACK_FALLBACK=true`, the v6.x flow below applies unchanged.
 
 Behavior depends on `TECH_STACK_MODE` (set in Step 1.6, defaults to `normal`):
 
@@ -1241,6 +1782,21 @@ fi  # end: if [ "$TECH_STACK_MODE" != "keep" ]
 
 ### Step 6: Create, reconcile, or augment .specswarm/quality-standards.md
 
+**v7.0.0 prelude — consume accepted proposals when available:**
+
+When `EXTRACTION_AVAILABLE=true` AND `QUALITY_FALLBACK=false`, the quality-standards-extractor proposed values for coverage threshold, perf budgets, a11y baseline, etc. in Step 4.0 and the user accepted some in Step 4.2.
+
+**LLM action (only when both flags above are favorable):**
+
+1. Read `.specswarm/.proposals.aggregated.tmp`; filter for `^quality-standards\|` records (skip `conflict-group:` markers).
+2. Read `.specswarm/.acceptance-log.tmp`; restrict to accepted decisions.
+3. Build a map of `key → value` from the accepted set.
+4. Fill `quality-standards.template.md` placeholders from the map; fall back to v6.x quality-level defaults (`Strict` / `Medium` / `Relaxed` from Step 3) where the map has no entry.
+5. Append extra accepted proposals (`audit_required.N`, `build_guardrail.N`, `pre_merge_check.N`, `perf_budget.<key>` for non-canonical keys) into the `<!-- ss:user-additions -->` block region.
+6. For each value written from a proposal, emit a sibling HTML comment with the citation: `<!-- source: docs/BUDGETS.md:§performance-budgets, confidence=high -->`.
+
+When `EXTRACTION_AVAILABLE=false` OR `QUALITY_FALLBACK=true`, the v6.x flow below applies unchanged.
+
 Same `QUALITY_MODE`-driven branching as Step 5 (`keep` / `reset` / `augment` / `normal`).
 
 ```bash
@@ -1389,8 +1945,17 @@ Generate `.specswarm/conventions.md` by having Claude read key project files and
 - Prettier config (`.prettierrc*`)
 - Biome config (`biome.json`, `biome.jsonc`)
 - Existing `CLAUDE.md` or `AGENTS.md`
-- 2-3 representative source files (largest files in `src/` or project root)
+- 2-3 representative source files (see source-inventory note below)
 - `package.json` scripts section
+
+**Source-inventory note (v7.0.0):** when `DISCOVERY_AVAILABLE=true` and `.specswarm/.discovery.tmp` exists, the source files to read are the 3 largest `source-code` records by size from that file, parsed via:
+
+```bash
+awk -F'\t' '$1=="source-code" {print $3"\t"$2}' "$REPO_ROOT/.specswarm/.discovery.tmp" \
+  | sort -nr | head -3 | cut -f2
+```
+
+Falls back to "largest 2-3 files in `src/` or project root" when discovery is unavailable. Either path yields a similar set in practice; the discovery-output path avoids a redundant filesystem traversal and respects the same `.gitignore` / size-cap policy used elsewhere in v7.
 
 **Generate `.specswarm/conventions.md`** with these sections (note the `<!-- ss:user-additions -->` block at the bottom — content there is preserved across re-runs):
 
@@ -1640,6 +2205,34 @@ echo "      └─ +$ACCEPTED_COUNT principle(s) imported from memory"
 fi
 echo "   ✓ .specswarm/tech-stack.md        (approved technologies)"
 echo "   ✓ .specswarm/quality-standards.md (quality gates)"
+
+# v7.0.0: extraction summary
+if [ "${EXTRACTION_AVAILABLE:-false}" = true ]; then
+  echo ""
+  echo "🚀 Spec-corpus extraction (v7.0.0):"
+  if [ -s "$REPO_ROOT/.specswarm/.proposals.aggregated.tmp" ]; then
+    AGG_FILE="$REPO_ROOT/.specswarm/.proposals.aggregated.tmp"
+    while IFS=$'\t' read -r dest total high medium low; do
+      [ -z "$dest" ] && continue
+      printf "   • %-22s %d proposals  (H:%d M:%d L:%d)\n" "$dest:" "$total" "$high" "$medium" "$low"
+    done < <(ss_proposals_count_by_destination "$AGG_FILE" 2>/dev/null)
+    CONFLICT_COUNT=$(ss_proposals_count_conflicts "$AGG_FILE" 2>/dev/null)
+    if [ "${CONFLICT_COUNT:-0}" -gt 0 ]; then
+      echo "   • Conflicts resolved:    $CONFLICT_COUNT"
+    fi
+    if [ -f "$REPO_ROOT/.specswarm/.acceptance-log.tmp" ]; then
+      ACC_TOTAL=$(wc -l < "$REPO_ROOT/.specswarm/.acceptance-log.tmp" 2>/dev/null | tr -d ' ')
+      DEFERRED=$(grep -c $'\tdefer\t' "$REPO_ROOT/.specswarm/.acceptance-log.tmp" 2>/dev/null || echo 0)
+      echo "   • Acceptance decisions:  $ACC_TOTAL (deferred: $DEFERRED — see TODO comments in foundation files)"
+    fi
+    # Cleanup tmp files on a successful run
+    rm -f "$REPO_ROOT/.specswarm/.discovery.tmp" \
+          "$REPO_ROOT/.specswarm/.proposals."*.tmp \
+          "$REPO_ROOT/.specswarm/.acceptance-log.tmp"
+  fi
+fi
+
+
 echo "   ✓ .specswarm/conventions.md       (code style & patterns)"
 if [ -f "$REPO_ROOT/.specswarm/references.md" ]; then
 echo "   ✓ .specswarm/references.md        (external authoritative sources)"

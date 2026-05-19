@@ -5,6 +5,71 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.0.0] - 2026-05-19 - Subagent-Driven Foundation File Generation
+
+### v7.0.0-rc.5 (2026-05-19) — rich-corpus acceptance fixes
+
+End-to-end test against `plugins/ss/test-fixtures/rich-corpus/` surfaced three real bugs and one over-extraction observation. All three bugs fixed; observation logged for a future minor.
+
+- **Citation verifier now accepts lenient forms.** Extractors emit citations as `docs/STRATEGY.md §4.2` (space-separated) and `path1 + path2` (composite) in addition to the canonical `<path>:<anchor>` form. The strict colon-only parser rejected 47/105 valid citations on the fixture. New parser accepts space-separated path/anchor pairs and composite citations (verifies each component, passes if any resolves). **Verification rate jumped from 55% to 99% — now exceeds SC8's 95% target.**
+- **Pipe-inside-BLOCK encoding switched to ASCII US (0x1F).** The original `\|` (backslash+pipe) escape was decoder-only: it preserved content for `ss_proposal_decode` but bash `IFS='|' read` ignored the backslash and split anyway, shifting fields on every record whose value contained a regex alternation. US (0x1F) never appears in real source text and survives bash splitting cleanly. **Constitution field-shift dropped from 6 records to 1.** `ss_proposal_decode` reverses both the US and the legacy `\|` forms.
+- **Comment-apostrophe lexer trap.** A `# in real source text, so it's safe ...` comment inside an awk-in-bash single-quoted block was terminating the awk script prematurely. Reworded comment.
+- **Extractor prompts strengthened.** All three Step 4.0 extractor prompts now spell out the BLOCK-wrap rule explicitly: ANY field containing a literal `|` MUST be `<<<BLOCK ... BLOCK`-wrapped, with concrete examples (`db.insert|update|delete`, `await\s+db\.(insert|update|delete)\(`). The constitution-extractor prompt additionally suggests restating quoted regex in plain English to avoid the wrap entirely.
+- **Aggregator-side field-shift sanity check.** New `ss_proposals_audit_shifted` flags records whose pipe count doesn't match the expected shape per destination. Step 4.1 surfaces shifters with a `⚠️` warning + sample list; Step 4.2 will route them to "review required" so the user can fix or skip them manually.
+- **Constitution over-extraction (logged, not fixed).** The constitution extractor pulled 15 principles from the rich-corpus fixture when the fixture has ~6 "obviously enforceable" rules. The extra 9 came from STRATEGY.md's prohibited list (treated as principle-shaped rules) and BUDGETS.md mandates (treated as enforceable budgets). All are real enforceable rules with valid rule blocks, but several overlap with what tech-stack and quality-standards already capture. Cross-destination dedupe is a candidate for a future minor (likely v7.1.0) — for now, Step 4.2's batch-accept + per-item review gives the user control.
+
+
+
+**`/ss:init` now reads your project's existing spec corpus and proposes foundation-file content automatically.** Previously, `/ss:init` generated `.specswarm/*.md` files from `package.json` auto-detection + interactive prompts + memory-driven principle import — ignoring the canonical decisions already documented in `docs/STRATEGY.md`, `docs/RULES.md`, `docs/BUDGETS.md`, etc. Users with a rich spec corpus had to re-state every decision through interactive prompts or hand-author the foundation files. v7 changes that: a discovery subagent classifies your project's documentation surface; three extractor subagents (tech-stack, quality-standards, constitution) run in parallel to propose foundation-file content with confidence ratings and citations; the user accepts via batched prompts capped at ~20 interactions per run; the accepted proposals land in the foundation files alongside any v6.x defaults.
+
+This is a major capability addition with **no breaking changes** — projects without a spec corpus see thinner discovery output and the same v6.4.0-style interactive flow.
+
+### Added
+
+- **Step 3.0: Source Discovery (NEW)** — a single subagent classifies every relevant file in the project as `spec-doc`, `documentation`, `config`, `memory`, `reference-codebase`, `source-code`, or `noise`. Output at `.specswarm/.discovery.tmp` drives Steps 3.5 (references), 4.0 (extractors), and 6.5 (conventions). Bounded scan caps at 200 entries; default roots are `docs/`, `specs/`, `documentation/`, root depth-1 `*.md`, plus standard configs. `--full-scan` lifts the bounds. Discovery is skipped under `--minimal`.
+- **Step 4.0: Parallel Extraction (NEW)** — three extractor subagents (tech-stack, quality-standards, constitution) dispatched in a single assistant message with three `Agent` tool calls so they execute concurrently. Each reads only its targeted slice of the discovery output and writes pipe-delimited proposals to `.specswarm/.proposals.<destination>.tmp`. Parent context stays light (~50K tokens) regardless of corpus size — subagents do the heavy reading and return structured summaries. Verified parallel dispatch via probe (overlapping subagent spans, ~1.3s harness-side per-agent stagger).
+- **Step 4.1: Aggregation + Conflict Detection (NEW)** — `lib/proposal-aggregator.sh` merges per-destination proposals, deduplicates (same `destination|key` → keep highest confidence), detects cross-source conflicts (emits `conflict-group:` markers with all candidates), sorts destinations in canonical order. Coverage gaps for canonical keys flagged informationally. Mandatory citation verification (`lib/citation-verifier.sh`) grep-checks every proposal's path:line / path:§section anchor; unverifiable citations downgrade to "review required" in the acceptance UI.
+- **Step 4.2: Interactive Acceptance (NEW)** — `AskUserQuestion`-driven flow with three prompt patterns: batch-accept for high-confidence non-conflicting groups, per-item conflict resolution with all candidate citations, per-item low-confidence prompts within budget. Cap of ~20 prompts total across all destinations; deferred items get TODO comments in the generated foundation files. Drift detection on re-runs surfaces when an existing declared value disagrees with the corpus-derived value.
+- **`lib/extraction-schema.sh`** — documents and validates the pipe-delimited proposal record format. Public: `ss_proposal_validate_line`, `ss_proposal_emit`, `ss_proposal_destinations`, `ss_proposal_confidence_rank`, `ss_proposal_canonical_keys`.
+- **`lib/proposal-aggregator.sh`** — BLOCK-aware iterator with `ss_proposal_iter` + `ss_proposal_decode` (multi-line values encoded as literal `\n`; pipes inside blocks escaped as `\|` so consumer IFS splits don't truncate regex alternations). Aggregation + dedupe + conflict-detect + counts.
+- **`lib/citation-verifier.sh`** — `ss_citation_verify` and `ss_citation_verify_batch`. Parses `<path>`, `<path>:<line>`, `<path>:<line-start>-<line-end>`, `<path>:§<section-slug>`, `<path>:<line>:§<section-slug>` forms. Section anchors match against slug-form headings.
+- **Flags**: `--full-scan` (lift Step 3.0 depth bounds) and `--include-user-memory` (let extractors read `user_*.md` files — default-skipped as personal context).
+- **Test fixtures** at `plugins/ss/test-fixtures/`:
+  - `rich-corpus/` — synthetic 3-spec-doc + 5-memory-file project for extraction validation
+  - `thin/` — README + minimal `package.json` for backward-compat parity validation
+- **Audit log entries** for every acceptance decision (SC6) so future `/ss:audit` can trace foundation-file content back to its corpus origin.
+
+### Changed
+
+- **Step 3.5 (References Discovery)** — when discovery output is available, the candidate spec-corpus and reference-codebase records are sourced from `.discovery.tmp` instead of (or in addition to) the v6.4.0 static path-pattern scan. The static scan remains as a fallback when discovery is unavailable.
+- **Step 6.5 (Convention Analysis)** — the 3 representative source files are sourced from `.discovery.tmp`'s `source-code` records (by size) when available, falling back to the v6.4.0 src/ scan.
+- **Steps 4, 5, 6** — each step now consumes accepted proposals from `.proposals.aggregated.tmp` filtered by `.acceptance-log.tmp` when `EXTRACTION_AVAILABLE=true` and the per-destination `FALLBACK` flag is false. v6.4.0 generation paths remain available as fallbacks. `ss_preserve_user_sections` continues to handle user-additions blocks unchanged.
+- **Step 7 (Summary)** — adds a "Spec-corpus extraction" block with per-destination proposal counts, conflict-resolution count, acceptance/deferred counts, and citation verification rate. Tmp files (`.discovery.tmp`, `.proposals.*.tmp`, `.acceptance-log.tmp`, `.citation-verify.tsv`) are cleaned up on successful completion.
+
+### Removed
+
+- **Step 4.5 (Memory-Driven Principle Import, NEW in v6.2.0)** — folded entirely into the Step 4.0 constitution extractor. The extractor reads all `feedback_*.md` files plus selected `project_*.md` files (only those with enforceable-rule shape) in a single extraction pass, producing principle proposals with optional `rule_block` fields. Net UX is unchanged for users; internal architecture is one pass instead of two.
+
+### Deprecated
+
+- The legacy `specswarm` plugin stub remains for v7.x. Originally slated for v7.0.0 removal per v6.0.0 deprecation notice, kept through v7.x because v7.0.0's other changes are additive and v7 is too important a release to also break installs for users still on the old plugin name. **Slated for full removal in v8.0.0.**
+
+### Notes
+
+- A1 in the spec (`research.md` R1) is **verified**: parallel `Agent` dispatch is real on Claude Code as of 2026-05-18. Subagents start within ~1–2s of each other and run concurrently for the bulk of their work.
+- A4 in the spec (subagent timeout) is **not implemented** — the `Agent` tool has no timeout knob. Resilience comes from FR13 partial-output handling (a stuck subagent's per-destination fallback flag fires; other destinations consume normally).
+- No migration steps for users on v6.x. Existing `.specswarm/*.md` files are preserved verbatim via `ss_preserve_user_sections`. A `/ss:init` re-run will offer to drift-reconcile when extracted values differ from declared values.
+
+### Validation gates (must all pass before v7.0.0 is tagged)
+
+1. `claude plugin validate plugins/ss/` exits 0 ✓
+2. `claude plugin validate plugins/specswarm/` exits 0 ✓
+3. Thin fixture parity check: `/ss:init` against `plugins/ss/test-fixtures/thin/` produces functionally identical output to v6.4.0 (extraction skipped, foundation files generated from auto-detect + interactive defaults only)
+4. Rich-corpus fixture: `/ss:init` against `plugins/ss/test-fixtures/rich-corpus/` extracts ≥ 80% of explicitly-decided corpus content into the right foundation files (SC1)
+5. All four `ss_check_*_sufficient` parsers pass on the generated rich-corpus output
+6. `generate_constitutional_hooks` emits hooks under `.specswarm/hooks/generated/` for each principle with a `rule_block` field
+7. **Maintainer (Marty) runs `/ss:init --reset` against `customcult-v3` and confirms output quality before tagging v7.0.0.** PR is open but unmerged until this gate passes.
+
 ## [6.4.0] - 2026-05-10 - `/ss:init` Reconciliation Refactor + Sufficiency Checks
 
 **`/ss:init` is now safe to re-run mid-development AND handles pre-existing hand-authored guides.** Previously, the command was a one-shot installer — re-running on a project with hand-edited guides silently overwrote developer content, and any pre-existing guide that didn't match SpecSwarm's machine-readable shape was treated as opaque (e.g., a prose-only `constitution.md` with no rule blocks produced no enforcement; a freeform `tech-stack.md` made `/ss:build` unable to detect drift). The command now performs **reconciliation** (read existing + current state, surface drift, accept deltas) AND **sufficiency evaluation** (detect guides SpecSwarm can't fully consume, offer augment / reset / keep per file).
