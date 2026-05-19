@@ -1392,6 +1392,30 @@ if [ "$EXTRACTION_AVAILABLE" = true ]; then
       echo "   ℹ️  ${d}: ${GAPS} canonical key(s) not covered by extraction (will use template defaults)"
     fi
   done
+
+  # v7.0.0 / FR9: citation verification — grep-verify each proposal's citation.
+  # Unverifiable citations are downgraded to "review required" in the
+  # acceptance UI (Step 4.2 surfaces them with a yellow flag).
+  CITATION_VERIFIER="$PLUGIN_DIR_V7/lib/citation-verifier.sh"
+  if [ -f "$CITATION_VERIFIER" ]; then
+    # shellcheck disable=SC1090
+    source "$CITATION_VERIFIER"
+    CITE_TSV="$REPO_ROOT/.specswarm/.citation-verify.tsv"
+    ss_citation_verify_batch "$AGG_FILE" "$CITE_TSV"
+    if [ -s "$CITE_TSV" ]; then
+      VERIFIED=$(awk -F'\t' '$2=="verified"' "$CITE_TSV"   | wc -l | tr -d ' ')
+      MISSING=$(awk -F'\t'  '$2=="missing"'  "$CITE_TSV"   | wc -l | tr -d ' ')
+      MISMATCHED=$(awk -F'\t' '$2=="mismatched"' "$CITE_TSV" | wc -l | tr -d ' ')
+      TOTAL_CHECKED=$((VERIFIED + MISSING + MISMATCHED))
+      if [ "$TOTAL_CHECKED" -gt 0 ]; then
+        VERIFY_RATE=$(( (VERIFIED * 100) / TOTAL_CHECKED ))
+        echo "   🔎 Citation verification: ${VERIFIED}/${TOTAL_CHECKED} verified (${VERIFY_RATE}%)"
+        if [ "${MISSING:-0}" -gt 0 ] || [ "${MISMATCHED:-0}" -gt 0 ]; then
+          echo "      • ${MISSING} missing path(s), ${MISMATCHED} anchor mismatch(es) — surfaced as 'review required' in Step 4.2"
+        fi
+      fi
+    fi
+  fi
 fi
 ```
 
