@@ -5,6 +5,53 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.4.0] - 2026-05-20 - Adversarial Spec-Mentor Verification (PostToolUse + Stop Hooks)
+
+**The dual mentor↔builder session pattern is now replaceable by mentor *moments* instead of mentor *sessions*.** v7.4.0 adds a complete adversarial-verification pipeline: a `PostToolUse` hook auto-detects when a SpecSwarm task is checked off, a `Stop` hook surfaces the verification queue at every natural pause, and `/ss:verify` dispatches a fresh-context `spec-mentor` subagent that returns a structured `PASS | DRIFT | NEEDS-MARTY` verdict. Drift fires an urgent notification via the v7.2.0 notifier helper.
+
+Fresh context per check beats a long-running mentor session — less anchoring bias, lower token cost, fully automatable. Five real-world patterns the dual-session caught (column-count drift, verbatim heading drift, identifier drift, type drift, scope drift) all translate directly into spec-mentor's adversarial workflow.
+
+### Added
+
+- **`/ss:verify [TASK_ID]` command** — adversarial verification entry point. Accepts a single task ID, `--all` for the entire queue, `--feature NUM` override, `--queue` for status overview. Auto-defaults to the oldest pending verification when no argument given. Gathers per-task context (task block, §refs, git diff, spec corpus paths) into a structured prompt; Claude dispatches a `Task(subagent_type="spec-mentor")` call per target; parses the verdict; resolves the queue entry as `.verified` (PASS) or `.flagged` (DRIFT / NEEDS-MARTY); fires `ss_notify urgent` on flag.
+- **`agents/spec-mentor.md`** — adversarial-verification subagent. Fresh context per invocation. Reads §-referenced spec sections + memory files, reads changed files via git diff, compares verbatim, returns structured verdict (VERDICT / SUMMARY / CITATIONS / FINDINGS / RECOMMENDATIONS). Tools: Read, Grep, Glob, Bash. Model: inherit. maxTurns: 12. Bias: when uncertain, prefer DRIFT or NEEDS-MARTY over PASS.
+- **`hooks/tasks-completion-detector.sh`** — PostToolUse hook on `Edit|MultiEdit|Write`. Fast-paths skip if not a `*/.specswarm/features/*/tasks.md` edit. Uses `git diff HEAD -- tasks.md` to find newly-checked `- [X] T###` lines. Writes a `.pending` queue entry per newly-completed task with structured context (task description, refs, paths). Emits a one-line systemMessage notifying Claude.
+- **`hooks/verify-queue-prompt.sh`** — Stop hook. At every Claude pause, lists pending `.specswarm/verify-queue/*.pending` entries with descriptions and recommends `/ss:verify`. Non-blocking. Silent when queue is empty.
+- **`lib/verify/queue.sh`** — single source of truth for the verification queue file format. Public API: `ss_verify_queue_dir`, `ss_verify_queue_add`, `ss_verify_queue_list_pending`, `ss_verify_queue_get`, `ss_verify_queue_resolve`, `ss_verify_queue_clear`, `ss_verify_queue_count`. Lifecycle: `.pending` → `.verified` (PASS) or `.flagged` (DRIFT / NEEDS-MARTY).
+- **`lib/verify/task-context.sh`** — task-block extraction from canonical SpecSwarm tasks.md. Public API: `ss_task_block`, `ss_task_description`, `ss_task_refs` (extracts `§X.Y` references), `ss_task_status`.
+- **`lib/verify/detect-completion.sh`** — `ss_detect_newly_checked` returns one task ID per newly-flipped `[ ]` → `[X]` checkbox using `git diff HEAD`. Handles untracked tasks.md as a special case (all currently-checked tasks treated as new).
+
+### Changed
+
+- **`hooks/hooks.json`** — registers `tasks-completion-detector.sh` in the PostToolUse chain (after quality-check + constitution-dispatcher) and `verify-queue-prompt.sh` in the Stop chain (after stop-hook). Multiple Stop hooks run independently; results aggregate via Claude Code's hook contract.
+
+### Architecture: why queue-based instead of direct dispatch
+
+A bash PostToolUse hook cannot directly invoke Claude's `Task` tool — hooks emit JSON decisions, not tool calls. The queue + slash command pattern is the natural solution: the hook DETECTS completion deterministically (fast, free), and the slash command DISPATCHES the subagent on user/Claude initiation (deliberate, audited). This gives Marty full control over verification cost while preserving the architectural value of fresh-context adversarial review.
+
+### Project-agnostic guarantees
+
+- Spec corpus discovered via `.specswarm/references.md` (no hardcoded paths)
+- Auto-queue works for any project using SpecSwarm's canonical `- [ ] T###` tasks.md format
+- Heading-only tasks.md formats silently skip auto-queue; manual `/ss:verify T###` still works
+- Notifications fire only if a notify mechanism is available (graceful degradation)
+- All hooks silent no-op when not in a SpecSwarm-managed feature dir
+
+### What this enables
+
+Combined with v7.1.0 `/ss:preflight` (deterministic pre-implementation checks) and v7.3.0 `/ss:intervention` (training-data capture), v7.4.0 closes the verification loop:
+
+1. **Before /ss:implement** — `/ss:preflight` runs deterministic checks
+2. **During /ss:implement** — checkbox flips auto-queue verification
+3. **Between tasks** — Stop hook surfaces queue at every pause
+4. **At /ss:verify** — fresh-context spec-mentor dispatched per task
+5. **On drift** — `/ss:intervention` captures the catch as training data
+6. **Notification** — `ss_notify urgent` cuts through when Marty is away
+
+The dual-session pattern is now optional, not required.
+
+---
+
 ## [7.3.0] - 2026-05-20 - /ss:intervention — Capture "Something Feels Off" as Training Data
 
 **`/ss:intervention` captures the moment you notice something the automation missed and writes it as a durable memory file — closing the meta-loop where today's manual catch becomes tomorrow's automatic catch.** Each intervention is a 4-field observation (noticed / should-have-caught / prevention / status) that may later graduate into a preflight check, a spec-mentor pattern, a constitution hook, or a deterministic guard. After 10–15 interventions in a project, patterns repeat — and that's where new automation comes from.

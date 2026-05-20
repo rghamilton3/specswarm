@@ -1,5 +1,5 @@
 {
-  "description": "SpecSwarm hooks for continuous build execution, auto-initialization, orientation, references verification, constitutional enforcement, and quality checking",
+  "description": "SpecSwarm hooks for continuous build execution, auto-initialization, orientation, references verification, constitutional enforcement, quality checking, and adversarial task verification (v7.4.0)",
   "hooks": {
     "Setup": [
       {
@@ -36,6 +36,10 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/constitution-dispatcher.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/tasks-completion-detector.sh"
           }
         ]
       }
@@ -46,6 +50,10 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/verify-queue-prompt.sh"
           }
         ]
       }
