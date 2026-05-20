@@ -29,6 +29,36 @@ Shipped ahead of #3 because #4 is what completes the v6.2.0 arc (see-encode-enfo
 
 **Lesson:** v6.2.0's "smoke-tested" claim was hollow — the smoke test never actually exercised the dispatcher end-to-end. Going forward, "smoke-tested" should mean "synthetic constitution.md → generated hook → dispatcher JSON → expected decision route," not just "loader function returned non-empty."
 
+### ✅ #5 /ss:init Reconciliation Refactor → v6.4.0 (2026-05-11)
+
+Step 4/5/6 reconciliation pass: drift detection between declared foundation values and re-runs against the corpus; sufficiency checks (does the project have enough corpus to make foundation files meaningful?); user-additions block preservation across re-runs. See [CHANGELOG.md](./CHANGELOG.md) for details.
+
+### ✅ #6 Subagent-Driven Foundation File Generation → v7.0.0 (2026-05-19)
+
+`/ss:init` now reads the project's existing spec corpus (Strategy docs, RULES.md, decision logs, memory files) and proposes foundation-file content automatically via discovery + extractor subagents dispatched in parallel. Projects with rich spec corpora skip ~80% of the interactive prompts they faced in v6.4.0. Backward-compatible — thin projects (just README + package.json) see the v6.4.0 flow. See [CHANGELOG.md](./CHANGELOG.md) for the multi-subagent architecture.
+
+### ✅ Autonomous Chunk Loop → v7.1.0–v7.10.0 (2026-05-20)
+
+Ten incremental releases implementing the full autonomous-chunk vision from `AUTOMATION-IDEAS.md`:
+
+- **v7.1.0 `/ss:preflight`** — deterministic 5-check `plan.md` validator (Idea 1)
+- **v7.2.0 `/ss:notify`** — cascading-fallback notification helper (Idea 9)
+- **v7.3.0 `/ss:intervention`** — capture "feels off" moments as training data (Idea 5)
+- **v7.4.0 `/ss:verify` + `spec-mentor`** — adversarial verification, PostToolUse auto-queue (Idea 3)
+- **v7.5.0 `/ss:retrospective` + `chunk-retrospective`** — auto-distill chunk lessons to memory (Idea 4)
+- **v7.6.0 `/ss:decisions` + `decision-miner`** — pre-batch strategic decisions (Idea 2)
+- **v7.7.0** — explicit subagent model assignments (4 opus, 1 haiku) (W1)
+- **v7.8.0 `/ss:dry-run` + `dry-run-simulator`** — predict before commit (W7)
+- **v7.9.0 `/ss:watchdog`** — background daemon, out-of-session monitor (W5)
+- **v7.10.0 `/ss:overnight`** — autonomous chunk execution via cron/systemd/launchd (W2)
+
+Closes the autonomous loop. Dual mentor↔builder session pattern is now fully optional. See [CHANGELOG.md](./CHANGELOG.md) for per-version detail.
+
+**Wild bets deliberately deferred:**
+- **W3 (self-modifying BUILDER-GUIDE)** — agent auto-edits canonical docs; ship-risk too high without real-chunk validation
+- **W4 (vector-indexed spec corpus)** — requires Python deps; breaks bash-only design; current corpus sizes don't justify
+- **W6 (MCP-based orchestrator)** — overkill at current scale; SpecSwarm has 6 agents working without a server layer
+
 ## Pending — Core SS
 
 ### #3 Project-Level Phases (medium-high impact, medium implementation)

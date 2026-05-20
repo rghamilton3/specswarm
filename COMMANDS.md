@@ -1,6 +1,6 @@
 # SpecSwarm Commands Reference
 
-Complete documentation for all SpecSwarm commands: **10 visible** + **11 internal**.
+Complete documentation for all SpecSwarm commands: **19 visible** + **11 internal** = **30 total**.
 
 ## Command Overview
 
@@ -8,6 +8,7 @@ Complete documentation for all SpecSwarm commands: **10 visible** + **11 interna
 |----------|----------|-------|
 | [Core Workflows](#core-workflows) | init, build, fix, modify, ship | 5 |
 | [Distinct Workflows](#distinct-workflows) | release, upgrade, rollback, status, metrics | 5 |
+| [Autonomous Loop (v7.1.0–v7.10.0)](#autonomous-loop-v710v7100) | preflight, notify, intervention, verify, retrospective, decisions, dry-run, watchdog, overnight | 9 |
 | [Internal Commands](#internal-commands) | specify, clarify, plan, tasks, implement, validate, analyze-quality, bugfix, hotfix, complete, constitution | 11 |
 
 ---
@@ -345,6 +346,92 @@ Feature-level orchestration metrics and analytics from completed features.
 
 ---
 
+## Autonomous Loop (v7.1.0–v7.10.0)
+
+These nine commands implement SpecSwarm's autonomous chunk execution loop. They compose with the core 5 — none of them replace any existing command; each adds a specific automation surface. Together they replace the dual mentor↔builder session pattern.
+
+### `/ss:preflight` (v7.1.0)
+
+Deterministic 5-check validator for a feature's `plan.md`. Catches version pins not anchored in tech-stack, missing memory references, unresolvable §X.Y refs, ambiguous grep patterns, and quoted-heading drift. Runs in <5 seconds with zero LLM cost.
+
+**Usage:** `/ss:preflight [--feature NUM] [--json] [--quiet]`
+
+**Project-agnostic via:** auto-detected package manager (npm/pnpm/yarn/bun/pip/poetry/uv/cargo/go/gem), `.specswarm/references.md` for spec corpus + memory dirs.
+
+---
+
+### `/ss:notify` (v7.2.0)
+
+Fire a notification with cascading fallback: convocli-notifier plugin → `notify-send` → `osascript` → terminal bell. Supports `--urgent`, `--success`, `--info` urgency tiers.
+
+**Usage:** `/ss:notify [--urgent|--success|--info] [--title TITLE] [MESSAGE]`
+
+**Programmatic:** `bash $PLUGIN_ROOT/lib/notify.sh urgent "title" "msg"` — works from any script.
+
+---
+
+### `/ss:intervention` (v7.3.0)
+
+Capture "wait, something feels off" moments as durable training-data memory files. Each intervention is a 4-field observation (noticed / should-have-caught / prevention / status) classified as `intervention_*.md` in the project's memory dir.
+
+**Usage:** `/ss:intervention [NOTICED] [--should TEXT] [--prevent TEXT] [--status open|graduated|wontfix] [--list [N]]`
+
+---
+
+### `/ss:verify` (v7.4.0)
+
+Adversarial spec-vs-code verification. Dispatches a fresh-context `spec-mentor` subagent (opus, read-only) that returns PASS / DRIFT / NEEDS-MARTY. Auto-queue is populated by the v7.4.0 `PostToolUse tasks-completion-detector.sh` hook when `- [ ] T###` flips to `- [X] T###`. Stop-hook surfaces pending verifications at every Claude pause.
+
+**Usage:** `/ss:verify [TASK_ID] [--all] [--feature NUM] [--queue]`
+
+---
+
+### `/ss:retrospective` (v7.5.0)
+
+Auto-distill a completed chunk's lessons into 1–3 durable memory files via the `chunk-retrospective` subagent (opus, Write access). Reads git log, tasks.md, verify-queue outcomes, captured interventions, MEMORY.md (for dedup). Each entry is classified as `feedback_*` / `project_*` / `intervention_*`. Run BEFORE `/ss:ship` so the new memory files land in the squash commit.
+
+**Usage:** `/ss:retrospective [FEATURE_NUM] [--parent BRANCH] [--dry-run]`
+
+---
+
+### `/ss:decisions` (v7.6.0)
+
+Pre-batch every strategic decision a chunk needs into ONE upfront `AskUserQuestion` touchpoint. Hybrid deterministic scan + `decision-miner` subagent (opus) for triage. Writes `decision-sheet.md` AND appends a "Pre-Batched Decisions" section to plan.md so `/ss:tasks` and `/ss:implement` apply the answers without code changes.
+
+**Usage:** `/ss:decisions [FEATURE_NUM] [--scan-only] [--dry-run]`
+
+---
+
+### `/ss:dry-run` (v7.8.0)
+
+Predict the chunk's full execution path WITHOUT running it. The `dry-run-simulator` subagent (opus) reads available artifacts + foundation + memory + intervention/verify history, writes a 9-section `dry-run.md` (anticipated decisions, risk register, out-of-scope guards, memory gaps, touchpoint estimate, predicted artifacts, commit cadence, recommendations). Re-runnable; each invocation sharpens the prediction.
+
+**Usage:** `/ss:dry-run [FEATURE_NUM] [--phase auto|plan|tasks|decisions|implement] [--history-limit N]`
+
+---
+
+### `/ss:watchdog` (v7.9.0)
+
+Background bash daemon that polls git + verify-queue every N seconds (default 30s). Auto-enqueues newly-checked tasks from new commits via commit-range diff. Fires `ss_notify urgent` on flagged-count growth. Completes v7.4.0's verification loop out-of-session — Marty can walk away and the watchdog still catches things.
+
+**Usage:** `/ss:watchdog [start|stop|status|logs|once] [--interval N] [--with-verify] [--tail N]`
+
+**State:** `.specswarm/watchdog.{pid,log,state}` — per-project, single-instance via PID file.
+
+---
+
+### `/ss:overnight` (v7.10.0)
+
+The full unattended chunk run. Combines pre-batched decisions + verification queue + headless `claude --print` to execute `/ss:preflight → /ss:implement → /ss:verify → /ss:retrospective` without user input. **Default mode is `check` (validate readiness, no execution).** `exec` is the opt-in that actually dispatches.
+
+**Usage:** `/ss:overnight [check|status|logs|exec|abort|schedule] [FEATURE_NUM] [--timeout SECONDS] [--allow-dirty]`
+
+**Strict autonomous prompt enforces:** no AskUserQuestion, no /ss:ship, no push. On unanswered decision, writes `overnight-unanswered.md` and exits.
+
+**Scheduler integration:** `/ss:overnight schedule` prints copy-paste cron / systemd timer / launchd plist snippets. Note: the `/schedule` plugin runs in Anthropic's remote infrastructure and can't touch local filesystems — use local OS schedulers instead.
+
+---
+
 ## Internal Commands
 
 These commands are used internally by the core workflows. They're hidden from command listings but can be called directly for re-running individual steps.
@@ -543,6 +630,23 @@ The following commands were removed and absorbed as flags:
 /ss:release
 ```
 
+### Unattended Chunk (v7.10.0)
+
+```bash
+# 9pm — pre-batch decisions
+/ss:decisions
+
+# Optional safety net — start the watchdog daemon
+/ss:watchdog start
+
+# 10pm — cron fires automatically (see /ss:overnight schedule for snippets)
+# Headless Claude runs preflight → implement → verify → retrospective
+
+# 7am — wake to phone notification; check verdict
+/ss:overnight status
+/ss:ship  # human sign-off + merge
+```
+
 ---
 
 ## Tips & Best Practices
@@ -564,4 +668,4 @@ The following commands were removed and absorbed as flags:
 
 ---
 
-**SpecSwarm v6.3.0** - Complete software development toolkit
+**SpecSwarm v7.10.0** — Complete software development toolkit + autonomous chunk loop

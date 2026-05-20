@@ -514,4 +514,4 @@ const agents = [
 
 ---
 
-**SpecSwarm v6.0.0** - Features deep-dive
+**SpecSwarm v7.10.0** — Features deep-dive (autonomous chunk loop)

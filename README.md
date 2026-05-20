@@ -1,6 +1,6 @@
-# SpecSwarm v7.0.0
+# SpecSwarm v7.10.0
 
-Spec-driven development for Claude Code. Build → Fix → Modify → Ship, with quality gates, multi-agent orchestration, and version-controlled specs.
+Spec-driven development for Claude Code. Build → Fix → Modify → Ship, with quality gates, multi-agent orchestration, version-controlled specs, and **autonomous chunk execution** (v7.1.0–v7.10.0).
 
 ---
 
@@ -18,7 +18,7 @@ Restart Claude Code to activate the plugin. *(Upgrading from v5.x? See [Migratin
 
 ---
 
-## The 5 commands
+## The 5 core commands
 
 | Command      | What it does                                                       |
 | ------------ | ------------------------------------------------------------------ |
@@ -27,6 +27,24 @@ Restart Claude Code to activate the plugin. *(Upgrading from v5.x? See [Migratin
 | `/ss:fix`    | Test-driven bug fix with auto-retry and silent-failure audit       |
 | `/ss:modify` | Behavior change with impact analysis and backward-compat plan      |
 | `/ss:ship`   | Multi-agent review + quality gate + merge to parent branch         |
+
+## v7.1.0–v7.10.0 autonomous-loop commands
+
+The 5 core commands above remain the canonical loop. The v7.1+ commands compose with them to enable single-session execution and unattended chunks. Each is optional; the core loop works without any of them.
+
+| Command             | Since   | What it does                                                                                  |
+| ------------------- | ------- | --------------------------------------------------------------------------------------------- |
+| `/ss:preflight`     | v7.1.0  | Deterministic 5-check `plan.md` validator (versions, memory, §refs, grep boundaries, headings) |
+| `/ss:notify`        | v7.2.0  | Fire a notification (cascading fallback: notifier plugin → notify-send → osascript → bell)   |
+| `/ss:intervention`  | v7.3.0  | Capture "wait, something feels off" moments as durable training-data memory files            |
+| `/ss:verify`        | v7.4.0  | Adversarial spec-vs-code verification via fresh-context `spec-mentor` subagent                |
+| `/ss:retrospective` | v7.5.0  | Auto-distill chunk lessons into 1–3 durable memory files via `chunk-retrospective` subagent   |
+| `/ss:decisions`     | v7.6.0  | Pre-batch all strategic decisions into ONE upfront `AskUserQuestion` touchpoint              |
+| `/ss:dry-run`       | v7.8.0  | Predict the full chunk lifecycle without running it (anticipated decisions, risk register)    |
+| `/ss:watchdog`      | v7.9.0  | Background daemon — out-of-session monitor; auto-queues verifications on new commits         |
+| `/ss:overnight`     | v7.10.0 | Run a chunk autonomously while you sleep (cron/systemd/launchd-compatible)                   |
+
+Together these implement the **autonomous chunk loop**: pre-batch decisions at 9pm, schedule `/ss:overnight` via cron between 10pm-6am, wake to a phone notification (success or "needs review"). The dual mentor↔builder session pattern is now optional, not required. See [CHANGELOG.md](./CHANGELOG.md) for the full architectural story.
 
 ---
 
@@ -174,4 +192,4 @@ If you have the old `specswarm` plugin installed, install the canonical `ss` plu
 
 All commands have moved from `/specswarm:*` to `/ss:*`. Skill IDs renamed from `specswarm-*` to `ss-*`. The `.specswarm/` per-project state directory and the SpecSwarm name are unchanged — only the command prefix moved.
 
-The deprecated `specswarm` plugin still appears in the marketplace as a stub through v6.x and will be removed entirely in v7.0.0.
+The deprecated `specswarm` plugin still appears in the marketplace as a stub through v7.x. It's kept in lockstep version-wise (currently v7.10.0) so users who installed the old name see a clear migration message. Slated for full removal in v8.0.0.

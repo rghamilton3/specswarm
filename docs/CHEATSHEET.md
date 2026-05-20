@@ -2,7 +2,7 @@
 
 **Fast reference for common SpecSwarm commands and workflows.**
 
-**Version**: v6.3.0 | **Commands**: 10 visible + 11 internal | **Language-Agnostic**
+**Version**: v7.10.0 | **Commands**: 19 visible + 11 internal = 30 total | **Language-Agnostic**
 
 ---
 
@@ -17,7 +17,7 @@
 
 # Verify
 /plugin list
-# Should show: ss v6.3.0
+# Should show: ss v7.10.0
 ```
 
 ---
@@ -73,7 +73,7 @@
 
 ## Command Quick Reference
 
-### Visible Commands (10)
+### Core Commands (5)
 
 | Command | Use When | Example |
 |---------|----------|---------|
@@ -82,11 +82,30 @@
 | `/ss:fix` | Bug fix | `/ss:fix "Login fails on mobile"` |
 | `/ss:modify` | Change feature | `/ss:modify "Update cart logic"` |
 | `/ss:ship` | Finish & merge | `/ss:ship` |
+
+### Core Variants (with flags)
+
+| Command | Use When | Example |
+|---------|----------|---------|
 | `/ss:fix --hotfix` | Emergency fix | `/ss:fix "API down" --hotfix` |
 | `/ss:modify --refactor` | Improve code | `/ss:modify "Optimize auth" --refactor` |
 | `/ss:modify --deprecate` | Remove feature | `/ss:modify "Old API v1" --deprecate` |
 | `/ss:modify --analyze-only` | Assess changes | `/ss:modify "Update React" --analyze-only` |
 | `/ss:analyze-quality` | Quality check | `/ss:analyze-quality` |
+
+### Autonomous Loop (v7.1.0–v7.10.0)
+
+| Command | Since | Use When | Example |
+|---------|-------|----------|---------|
+| `/ss:preflight` | v7.1.0 | Before `/ss:tasks` — validate plan.md | `/ss:preflight` |
+| `/ss:notify` | v7.2.0 | Fire a notification from any context | `/ss:notify --urgent "build broke"` |
+| `/ss:intervention` | v7.3.0 | Capture "something feels off" moment | `/ss:intervention "plan says 43, spec says 47"` |
+| `/ss:verify` | v7.4.0 | Adversarial verify a completed task | `/ss:verify T011` |
+| `/ss:retrospective` | v7.5.0 | Distill chunk lessons before /ss:ship | `/ss:retrospective` |
+| `/ss:decisions` | v7.6.0 | Pre-batch strategic decisions | `/ss:decisions` |
+| `/ss:dry-run` | v7.8.0 | Predict the chunk without running it | `/ss:dry-run` |
+| `/ss:watchdog` | v7.9.0 | Background out-of-session monitor | `/ss:watchdog start` |
+| `/ss:overnight` | v7.10.0 | Autonomous unattended chunk run | `/ss:overnight check` |
 
 ---
 
@@ -142,6 +161,23 @@ Steps:
 
 # Re-check
 /ss:analyze-quality
+```
+
+### Pattern 5: Unattended Overnight Chunk (v7.10.0)
+
+```bash
+# Pre-batch decisions at 9pm
+/ss:decisions
+
+# Optional safety net
+/ss:watchdog start
+
+# Schedule via cron — /ss:overnight schedule prints snippets
+# 0 22 * * 1-5  cd <repo> && bash lib/overnight/run.sh --allow-dirty
+
+# Wake to phone notification; check verdict
+/ss:overnight status
+/ss:ship  # human sign-off + merge
 ```
 
 ---
@@ -315,10 +351,12 @@ cat features/015-*/spec.md | grep parent_branch
 ### "Orchestration pauses mid-execution"
 
 ```bash
-# Fix: Update to v4.0.1 or later (v6.0.0 satisfies)
+# Fix: Update to v7.0.0 or later
 /plugin update ss
 
-# v3.0+ eliminated all mid-phase pausing (autonomous execution)
+# Autonomous execution has been the default since v3.0;
+# v7.6.0 added /ss:decisions to front-load any remaining
+# strategic-decision interrupts into a single batch.
 ```
 
 ---
@@ -367,15 +405,19 @@ project-root/
 ## Version Information
 
 This cheat sheet is for:
-- **SpecSwarm**: v6.3.0
-  - Compacted from 32/35 commands to 21 (10 visible + 11 internal)
-  - Natural language commands (build, fix, ship, modify)
-  - Language-agnostic (works with any language Claude supports)
+- **SpecSwarm**: v7.10.0
+  - **30 commands** (19 visible + 11 internal)
+  - **6 multi-agent subagents** with v7.7.0 explicit model assignments (5 opus, 1 haiku)
+  - Natural language core (`build`, `fix`, `ship`, `modify`)
+  - Language-agnostic
   - Autonomous execution (no mid-phase pausing)
   - Parent branch safety
-  - External Reference Corpus consultation (`/ss:specify` + `/ss:clarify` read declared spec corpus + memory dirs) — v6.1.0
-  - Memory-Driven Principle Import (`/ss:init` proposes constitution principles from `feedback_*.md`) — v6.2.0
-  - Constitution Severity Levels (`severity: warn | block` field; block rules return `decision: block` on violation) — v6.3.0
+  - External Reference Corpus consultation — v6.1.0
+  - Memory-Driven Principle Import — v6.2.0
+  - Constitution Severity Levels (warn | block) — v6.3.0
+  - `/ss:init` reconciliation refactor — v6.4.0
+  - Subagent-Driven Foundation File Generation — v7.0.0
+  - **Autonomous Chunk Loop (v7.1.0–v7.10.0):** preflight, notify, intervention, verify (+ spec-mentor), retrospective (+ chunk-retrospective), decisions (+ decision-miner), dry-run (+ dry-run-simulator), watchdog daemon, overnight (cron/systemd/launchd)
 
 Check your version:
 ```bash
@@ -384,7 +426,7 @@ Check your version:
 
 Update plugin:
 ```bash
-/plugin update specswarm
+/plugin update ss
 ```
 
 ---
