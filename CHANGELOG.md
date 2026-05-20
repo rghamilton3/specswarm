@@ -5,6 +5,35 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.2.0] - 2026-05-20 - Notification Helper + /ss:notify
+
+**`/ss:notify` plus `ss_notify` helper add semantic notifications to SpecSwarm workflows with cascading cross-platform fallbacks.** The convocli-notifier plugin (when installed) already fires on every Claude Code Stop event — this release adds *differentiated* notifications: urgent/success/info with corresponding sounds, fired at specific workflow moments (preflight FAIL, build complete, manual ping). Works on any project regardless of installed plugins; silently no-ops only if none of the four notification tiers is available.
+
+### Added
+
+- **`/ss:notify` command** — fire a notification from anywhere in a workflow. Supports `--urgent` (bell sound, libnotify critical urgency, macOS Sosumi), `--success` (complete sound, macOS Glass), `--info` (chime sound, macOS Pop, default), and `--title TITLE`. Useful for "ping me when this is done" patterns inside long-running chunks.
+- **`lib/notify.sh`** — `ss_notify` helper with cascading fallback tiers:
+  1. **convocli-notifier plugin script** — auto-discovers in `~/.claude/plugins/cache/convocli-notifier/notifier/*/scripts/play-notification.sh` (version-agnostic glob) or marketplace fallback. Passes urgency-to-sound mapping via `NOTIFIER_SOUND` env (bell/complete/chime).
+  2. **`notify-send`** — Linux libnotify desktop banner with urgency mapping.
+  3. **`osascript`** — macOS native notification center.
+  4. **Terminal bell + stderr message** — always available last resort.
+
+  Multiple tiers may fire concurrently (e.g., Linux with notifier plugin installed → sound + libnotify banner together).
+- **Debounce** — 10-second throttle per `(urgency, title)` tuple, state at `~/.cache/specswarm/notify/`. Per-invocation override via `SS_NOTIFY_DEBOUNCE`.
+
+### Changed
+
+- **`/ss:preflight`** — automatically fires an `urgent` notification when overall result is FAIL. Users who stepped away during preflight get a phone/desktop ping when a check blocks. No-op if no notification mechanism is available.
+
+### Design notes
+
+- **Project-agnostic** — works regardless of whether the notifier plugin is installed.
+- **Cross-platform** — Linux desktop, macOS, Termux/Android all covered by the tier cascade.
+- **Non-blocking** — every tier runs in the background or as a fast call; a notification failure never breaks the calling command.
+- **Programmatic** — any future SpecSwarm command can call `ss_notify` directly. The slash command is convenience; the library helper is the real API.
+
+---
+
 ## [7.1.0] - 2026-05-20 - Deterministic Preflight Checks
 
 **`/ss:preflight` runs 5 deterministic checks against a feature's `plan.md` in <5 seconds, catching the failure modes that previously required a human reviewer or a second Claude Code session.** Each check discovers project context through SpecSwarm's existing infrastructure (`.specswarm/references.md`, lockfiles, git root) — no project-specific configuration required. The checks are pure pattern recognition: zero LLM calls, no token cost, fully project-agnostic.

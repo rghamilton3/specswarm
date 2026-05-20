@@ -2,7 +2,7 @@
 
 ## Overview
 
-SpecSwarm is a Claude Code plugin providing spec-driven development workflows: Build, Modify, Fix, Ship. As of v6.0.0, all functionality lives in the `ss` plugin and is invoked via `/ss:*` commands (11 visible + 11 internal/hidden = 22 total, including v7.1.0's new `/ss:preflight`). Includes 10 natural-language skills, 2 multi-agent orchestration agents, and the `.specswarm/` per-project state directory (directory name preserves the SpecSwarm brand).
+SpecSwarm is a Claude Code plugin providing spec-driven development workflows: Build, Modify, Fix, Ship. As of v6.0.0, all functionality lives in the `ss` plugin and is invoked via `/ss:*` commands (12 visible + 11 internal/hidden = 23 total, including v7.1.0's `/ss:preflight` and v7.2.0's `/ss:notify`). Includes 10 natural-language skills, 2 multi-agent orchestration agents, and the `.specswarm/` per-project state directory (directory name preserves the SpecSwarm brand).
 
 The legacy `specswarm` plugin remains as a deprecation stub (no commands/skills/hooks) so users who installed it see a clear migration message. Slated for full removal in v7.0.0.
 
@@ -34,15 +34,17 @@ Three files must be bumped in sync:
 
 ```
 plugins/ss/
-├── commands/        # 22 slash commands (11 visible + 11 internal/hidden) — v7.1.0 adds /ss:preflight
+├── commands/        # 23 slash commands (12 visible + 11 internal/hidden)
+│                    # v7.1.0: /ss:preflight    v7.2.0: /ss:notify
 ├── skills/          # 10 ss-* skills (ss-build, ss-fix, ss-init, ss-metrics, ss-modify, ss-release, ss-rollback, ss-ship, ss-status, ss-upgrade)
 ├── agents/          # 2 agents (orchestrator, task-router)
 ├── hooks/           # SessionStart orientation, Setup auto-init, PostToolUse (quality + constitution dispatcher), Stop loop control
 ├── lib/             # Shared shell helpers (audit-logger, agent-generator, constitution-parser, orchestrator-utils, …)
+│   ├── notify.sh    # v7.2.0: ss_notify with notifier-plugin → notify-send → osascript → bell fallbacks
 │   └── preflight/   # v7.1.0: deterministic checks (run.sh + checks/*.sh + package-manager-detector.sh)
 ├── rules/           # Project-level rule references (specswarm-active-build, specswarm-feature-branch)
 ├── templates/       # Spec/plan/task templates, agent template, constitutional-hook templates
-└── .claude-plugin/  # plugin.json (name: "ss", version: "7.1.0")
+└── .claude-plugin/  # plugin.json (name: "ss", version: "7.2.0")
 
 plugins/specswarm/
 └── .claude-plugin/

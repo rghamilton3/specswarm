@@ -30,6 +30,8 @@ PRE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_LIB="$(cd "${PRE_DIR}/.." && pwd)"
 # shellcheck disable=SC1091
 source "${PLUGIN_LIB}/features-location.sh"
+# shellcheck disable=SC1091
+[ -f "${PLUGIN_LIB}/notify.sh" ] && source "${PLUGIN_LIB}/notify.sh"
 
 JSON_OUTPUT=false
 QUIET=false
@@ -192,5 +194,13 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 printf "Summary: %d passed, %d warning(s), %d blocked\n" "$PASS_COUNT" "$WARN_COUNT" "$FAIL_COUNT"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Fire a notification on FAIL so users who stepped away know they're needed.
+# Silently no-ops if no notification mechanism is available.
+if [ "$OVERALL" -eq 2 ] && declare -f ss_notify >/dev/null 2>&1; then
+  feature_name=$(basename "$(dirname "$TARGET")")
+  ss_notify urgent "SpecSwarm preflight blocked" \
+    "${feature_name}: ${FAIL_COUNT} check(s) failed — review before /ss:implement" || true
+fi
 
 exit "$OVERALL"
