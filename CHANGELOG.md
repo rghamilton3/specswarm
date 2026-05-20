@@ -5,6 +5,48 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.5.0] - 2026-05-20 - Auto-Retrospective (/ss:retrospective + chunk-retrospective agent)
+
+**Closes the "session memory dies when session ends" failure mode.** A Claude Code session accumulates lessons across edits, decisions, drifts, and corrections; when the session ends, that knowledge evaporates. v7.5.0 adds `/ss:retrospective`, which gathers all the signals from a completed chunk and dispatches the `chunk-retrospective` subagent to distill them into 1–3 durable memory files written directly to the project's memory dir. The lessons compound chunk-over-chunk because the next chunk's spec-mentor reads them.
+
+### Added
+
+- **`/ss:retrospective [FEATURE_NUM]` command** — auto-retrospective for a completed SpecSwarm feature/chunk. Gathers signals (commits since divergence from parent branch, final tasks.md, verify-queue PASS/DRIFT/NEEDS-MARTY outcomes from v7.4.0, recent intervention files from v7.3.0, existing memory dir contents for dedup), assembles a structured context bundle at `.specswarm/retrospective/<FEATURE_ID>.context`, and instructs Claude to dispatch the `chunk-retrospective` subagent. Post-dispatch: updates `MEMORY.md` per new file via the v7.3.0 `ss_intervention_index_update` helper, fires `ss_notify success`, and cleans up the context bundle.
+- **`agents/chunk-retrospective.md`** — synthesis subagent. Tools: Read, Write, Grep, Glob, Bash. maxTurns: 15. Reads signals, identifies 1–3 lessons (cap: 3), classifies each (`feedback_*` for opinionated rules, `project_*` for state context, `intervention_*` for raw observations), writes memory files directly via Write tool, returns structured RETROSPECTIVE SUMMARY (FILES_WRITTEN / SOURCE_EVENTS / SKIPPED_DUPLICATES / NEXT_CHUNK_HEADS_UP). Quality bar enforced in the system prompt: every entry must cite a real event (commit hash / task ID / intervention file); generic advice forbidden; dedup against existing memory mandatory.
+- **`.specswarm/retrospective/<FEATURE_ID>.context` workflow** — ephemeral context bundle (heredoc-delimited fields: feature_id, feature_dir, parent_branch, tasks_md_path, memory_dir, memory_index_path, verified_tasks, flagged_tasks, recent_interventions, existing_memory_summary, commits). Cleaned up automatically after agent dispatch.
+
+### Architecture notes
+
+- **Why a separate command, not auto-invoked from `/ss:ship`** — `/ss:ship` is a long-running command with many phases (CI checks, squash merge, branch cleanup). Wedging an agent dispatch into the middle risks breaking established workflows. The decoupled command lets users run `/ss:retrospective` before `/ss:ship` so the new memory files land in the squash commit naturally. Future v7.x may add a non-blocking nudge from `/ss:ship` at completion.
+- **Parent branch auto-resolution cascade** — `--parent` override → `.specswarm/build-loop.state` parent_branch → `main` → `master`. Works across most git workflows without configuration.
+- **Tool profile divergence from spec-mentor (v7.4.0)** — spec-mentor is read-only by design (adversarial verification shouldn't mutate state). chunk-retrospective has Write access because writing memory files is its entire purpose. Both agents share Read/Grep/Glob/Bash; neither has WebSearch/WebFetch.
+- **Reuses v7.3.0 helpers** — `ss_intervention_dir` (memory dir 3-tier discovery) and `ss_intervention_index_update` (MEMORY.md "## Interventions" / "## Feedback" / "## Project" section management). No new lib/ directory required.
+
+### v7 toolchain — verification loop is now complete
+
+| Stage | Command | Captures |
+|---|---|---|
+| Before implement | `/ss:preflight` (v7.1.0) | Deterministic plan.md checks |
+| During implement | `tasks-completion-detector` (v7.4.0) | Auto-queues verifications on checkbox flip |
+| At task completion | `/ss:verify` + spec-mentor (v7.4.0) | Adversarial PASS/DRIFT/NEEDS-MARTY |
+| Mid-chunk catch | `/ss:intervention` (v7.3.0) | Marty captures "feels off" moments |
+| **Before ship** | **`/ss:retrospective` (v7.5.0)** | **Synthesizes everything into durable memory** |
+| Async signal | `ss_notify` (v7.2.0) | Phone/desktop ping on urgent events |
+
+If a user runs `/ss:verify` and `/ss:intervention` diligently through a chunk, the retrospective has rich signal. If they don't, it falls back gracefully to git log + tasks.md.
+
+### Project-agnostic guarantees
+
+- Feature resolution via `find_feature_dir` — no hardcoded paths
+- Memory dir via the same v7.3.0 3-tier cascade (`references.md` → `<repo>/memory/` → `.specswarm/interventions/`)
+- Parent branch auto-resolves; `--parent` override always available
+- Agent dispatches via Task tool (Claude Code primitive — works in any session)
+- Skips silently if no git repo / no feature dir / no signals
+- Notifications fire only if `ss_notify` mechanism available (graceful degradation)
+- `--dry-run` mode for inspecting the context bundle without dispatching the agent or burning tokens
+
+---
+
 ## [7.4.0] - 2026-05-20 - Adversarial Spec-Mentor Verification (PostToolUse + Stop Hooks)
 
 **The dual mentor↔builder session pattern is now replaceable by mentor *moments* instead of mentor *sessions*.** v7.4.0 adds a complete adversarial-verification pipeline: a `PostToolUse` hook auto-detects when a SpecSwarm task is checked off, a `Stop` hook surfaces the verification queue at every natural pause, and `/ss:verify` dispatches a fresh-context `spec-mentor` subagent that returns a structured `PASS | DRIFT | NEEDS-MARTY` verdict. Drift fires an urgent notification via the v7.2.0 notifier helper.
