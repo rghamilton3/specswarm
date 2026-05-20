@@ -2,7 +2,7 @@
 
 ## Overview
 
-SpecSwarm is a Claude Code plugin providing spec-driven development workflows: Build, Modify, Fix, Ship. As of v6.0.0, all functionality lives in the `ss` plugin and is invoked via `/ss:*` commands (18 visible + 11 internal/hidden = 29 total — v7.1.0 `/ss:preflight`, v7.2.0 `/ss:notify`, v7.3.0 `/ss:intervention`, v7.4.0 `/ss:verify`, v7.5.0 `/ss:retrospective`, v7.6.0 `/ss:decisions`, v7.8.0 `/ss:dry-run`, v7.9.0 `/ss:watchdog`). Includes 10 natural-language skills, 6 multi-agent orchestration agents with v7.7.0 explicit model assignments (5 on opus, 1 on haiku), and the `.specswarm/` per-project state directory (directory name preserves the SpecSwarm brand).
+SpecSwarm is a Claude Code plugin providing spec-driven development workflows: Build, Modify, Fix, Ship. As of v6.0.0, all functionality lives in the `ss` plugin and is invoked via `/ss:*` commands (19 visible + 11 internal/hidden = 30 total — v7.1.0 `/ss:preflight`, v7.2.0 `/ss:notify`, v7.3.0 `/ss:intervention`, v7.4.0 `/ss:verify`, v7.5.0 `/ss:retrospective`, v7.6.0 `/ss:decisions`, v7.8.0 `/ss:dry-run`, v7.9.0 `/ss:watchdog`, v7.10.0 `/ss:overnight`). Includes 10 natural-language skills, 6 multi-agent orchestration agents with v7.7.0 explicit model assignments (5 on opus, 1 on haiku), and the `.specswarm/` per-project state directory (directory name preserves the SpecSwarm brand).
 
 The legacy `specswarm` plugin remains as a deprecation stub (no commands/skills/hooks) so users who installed it see a clear migration message. Slated for full removal in v7.0.0.
 
@@ -53,11 +53,12 @@ Three files must be bumped in sync:
 
 ```
 plugins/ss/
-├── commands/        # 29 slash commands (18 visible + 11 internal/hidden)
+├── commands/        # 30 slash commands (19 visible + 11 internal/hidden)
 │                    # v7.1.0: /ss:preflight     v7.2.0: /ss:notify
 │                    # v7.3.0: /ss:intervention  v7.4.0: /ss:verify
 │                    # v7.5.0: /ss:retrospective v7.6.0: /ss:decisions
 │                    # v7.8.0: /ss:dry-run       v7.9.0: /ss:watchdog
+│                    # v7.10.0: /ss:overnight
 ├── skills/          # 10 ss-* skills (ss-build, ss-fix, ss-init, ss-metrics, ss-modify, ss-release, ss-rollback, ss-ship, ss-status, ss-upgrade)
 ├── agents/          # 6 agents (v7.7.0: explicit model assignments)
 │                    # — orchestrator         [opus]   multi-task dependency analysis

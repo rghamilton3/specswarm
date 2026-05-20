@@ -5,6 +5,116 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.10.0] - 2026-05-20 - /ss:overnight — Run a Chunk While You Sleep (W2)
+
+**Marty's most ambitious automation.** Pre-batch decisions before bed, schedule this command via cron/systemd/launchd between 10pm-6am, wake to a green PR or a phone notification telling you exactly what needs attention. Combines pre-batched decisions (v7.6.0), the v7.4.0 verification queue, v7.2.0 notifications, and headless `claude --print` to run the full `/ss:preflight → /ss:implement → /ss:verify → /ss:retrospective` chain without user input.
+
+This is W2 from `AUTOMATION-IDEAS.md`. **Architectural plot twist**: the `/schedule` plugin runs scheduled agents in Anthropic's REMOTE infrastructure, so it cannot access a local filesystem — making it the wrong tool for "run /ss:implement on my local repo overnight." v7.10.0 ships clean cron / systemd / launchd snippets via `/ss:overnight schedule` instead. `/schedule` can still be useful as a 9pm reminder ping; just not as the executor.
+
+### Added
+
+- **`/ss:overnight [SUBCOMMAND]` command** — modes:
+  - `check` (default) — validate readiness without executing
+  - `status` — show last/current overnight run state
+  - `logs` — tail `.specswarm/overnight.log` (default 60 lines)
+  - `exec` — EXPENSIVE opt-in; dispatch headless `claude --print` detached via nohup+setsid
+  - `abort` — SIGTERM a running overnight job; SIGKILL fallback after 3s
+  - `schedule` — print copy-paste cron / systemd timer / launchd plist snippets
+
+  Args: `--timeout SECONDS` (wall-clock cap, default 28800 = 8h), `--allow-dirty` (permit uncommitted changes), `--tail N` (logs line count).
+
+- **`lib/overnight/state.sh`** — per-project state at `.specswarm/overnight.{pid,log,state}`. Same shape as v7.9.0 `lib/watchdog/state.sh` for cognitive consistency. PID-file with stale-detection auto-cleanup; 5MB log rotation (overnight runs produce more output than watchdog); state fields: `started_at / finished_at / feature / exit_code / verdict / notes`.
+
+- **`lib/overnight/preflight.sh`** — strict readiness validator (8 checks):
+  1. Feature dir resolves
+  2. spec.md present and non-empty
+  3. plan.md present and non-empty
+  4. tasks.md has at least one unchecked task (warn if all done)
+  5. `decision-sheet.md` status: locked (BLOCKED if missing or unlocked)
+  6. Git working tree clean OR `--allow-dirty` acknowledged
+  7. Current branch is NNN-slug feature branch (warn if not)
+  8. `claude` CLI in PATH (required for --exec)
+
+  Returns 0 (READY) or 1 (BLOCKED) with human-readable per-check report.
+
+- **`lib/overnight/run.sh`** — autonomous runner. Scheduler-agnostic — invokable by cron, systemd, launchd, or any tool that can call a bash script. Workflow:
+  1. Acquire PID lock at `.specswarm/overnight.pid`
+  2. Run preflight; exit 1 if BLOCKED
+  3. Record start commit hash
+  4. Pipe a strict autonomous prompt to `timeout --signal=TERM <SECONDS>s claude --print` redirected to `<feature_dir>/overnight.output.log`
+  5. Classify result:
+     - Exit 0 with success line → fire `ss_notify success`, exit 0
+     - Exit 0 with partial / no commits → `ss_notify urgent`, exit 2
+     - Exit 124/143 (timeout) → `ss_notify urgent` "wall-clock timeout", exit 3
+     - Any other non-zero → `ss_notify urgent` aborted, exit 2
+  6. Cleanup PID; persist verdict + notes in state file
+
+  Strict autonomous prompt (sent to headless Claude) enforces:
+  - DO NOT call AskUserQuestion under any circumstances
+  - On unanswered decision: write `<feature_dir>/overnight-unanswered.md` and exit early
+  - DO NOT run `/ss:ship` (requires human sign-off)
+  - DO NOT push to origin (commits stay local)
+  - Print `OVERNIGHT_RESULT: <success|partial|blocked> <notes>` as a final summary
+
+### Architecture
+
+- **Why local scheduler instead of `/schedule`.** `/schedule` runs in Anthropic's remote infra; it cannot read or write to a local repo. cron / systemd / launchd are the right primitives for "run this script on my machine at 10pm." `/ss:overnight schedule` prints copy-paste snippets for all three.
+- **Why `--exec` is conservative.** The most invasive command in v7.x — burns tokens, lands commits. Default mode is `check` (validate readiness, no execution). `--exec` is explicit opt-in, same pattern as v7.9.0's `--with-verify`.
+- **Why `--allow-dirty` is opt-in.** Default refusal protects against autonomous runs that interleave with uncommitted user work. Explicit override exists because some chunks have non-tracked draft artifacts the user wants to keep around.
+- **Why the strict autonomous prompt.** Without it, headless Claude might try `AskUserQuestion` against an absent user, hang indefinitely (until wall-clock timeout), or run `/ss:ship` and merge code while Marty is asleep. The prompt forbids those paths explicitly. If decisions are missing from `decision-sheet.md`, Claude is instructed to write `overnight-unanswered.md` and exit early — the morning review tells Marty exactly what blocked.
+- **Why detach via nohup+setsid.** Same survival semantics as v7.9.0 watchdog. The launching shell can close; the run continues until completion or timeout.
+- **Why store `overnight.output.log` next to feature artifacts.** Morning review benefits from co-located evidence. The `.specswarm/overnight.log` is the daemon-level event log; the `<feature_dir>/overnight.output.log` is the headless Claude's verbatim output.
+
+### Validated against customcult-v3 P1.2
+
+Preflight correctly BLOCKED with 2 errors + 2 warnings:
+- ✅ feature_dir / spec.md / plan.md / claude CLI
+- ⚠️ tasks.md uses heading-style (no checkboxes); warn "all tasks already checked (0 done)"
+- 🚫 decision-sheet.md missing (must run /ss:decisions first)
+- 🚫 git working tree dirty
+- ⚠️ branch is `main` not NNN-slug
+
+Exit code 1 — autonomous run refused. This is the safety rail in action.
+
+### How v7.10.0 ties the v7 toolchain together
+
+Full unattended chunk lifecycle:
+
+| Time | Marty's action | System action |
+|---|---|---|
+| 9:00pm | `/ss:decisions` | Pre-batch all strategic decisions |
+| 9:50pm | `/ss:watchdog start` (optional) | Redundant out-of-session monitor |
+| 10:00pm | (cron fires) | `lib/overnight/run.sh` launches; preflight passes |
+| 10:01pm | (asleep) | Headless Claude runs `/ss:preflight` → `/ss:implement` |
+| Overnight | (asleep) | Auto-queue verifications via PostToolUse hooks (v7.4.0) |
+| Overnight | (asleep) | Final `/ss:verify --all` + `/ss:retrospective` |
+| 5:42am | (asleep) | `ss_notify success` fires → phone shows "P1.3 succeeded" |
+| 7:00am | `/ss:overnight status` | See verdict, review `overnight.output.log` |
+| 7:15am | `/ss:ship` | Squash merge after human sign-off |
+
+If anything flags overnight, the urgent notification cuts through with the specific verdict — Marty wakes to a known state, not a mystery.
+
+### Plan progress
+
+Tier 3 Wild Bets — 4 of 7 shipped:
+- v7.7.0 W1 (model specialization)
+- v7.8.0 W7 (dry-run replay mode)
+- v7.9.0 W5 (mentor watchdog daemon)
+- **v7.10.0 W2 (overnight autonomous chunks)**
+
+Combined with Tier 1's full set, v7.10.0 closes the **unattended-chunk loop**. The dual mentor↔builder session pattern is now fully optional — and chunks can run while Marty sleeps.
+
+### What v7.10.0 does NOT do
+
+- Does not run `/ss:ship` — squash merge is irreducibly human
+- Does not push to origin — commits stay local for morning review
+- Does not auto-resolve unanswered decisions — writes `overnight-unanswered.md` and exits
+- Does not work with `/schedule` plugin for execution (remote agents can't see local filesystem) — `schedule` subcommand documents the reasoning + alternative tooling
+- Does not auto-restart on reboot — re-add cron/systemd/launchd config if your machine reboots
+- Does not gate token spend beyond `--timeout` wall-clock — set a tight cap for your first runs
+
+---
+
 ## [7.9.0] - 2026-05-20 - /ss:watchdog — Mentor Watchdog Daemon (W5)
 
 **Completes the autonomous-execution loop by surviving session restarts.** v7.4.0's PostToolUse hooks only fire while a Claude Code session is active. The watchdog is a background bash daemon that polls a project's git + verify-queue state at a configurable interval, auto-enqueues newly-checked tasks from new commits, and pings Marty via `ss_notify urgent` when anything gets flagged. Marty can fully step away during `/ss:implement` and trust that something will catch the work even if his Claude session ends.
