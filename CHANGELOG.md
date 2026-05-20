@@ -5,6 +5,64 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.8.0] - 2026-05-20 - /ss:dry-run — Predict Before You Commit (W7)
+
+**The cheapest insurance against committing to the wrong chunk shape.** `/ss:dry-run` reads the current state of a SpecSwarm feature (whatever artifacts exist), foundation files, memory dir contents, intervention history, and verify-queue outcomes, then dispatches the `dry-run-simulator` subagent to write a structured 9-section prediction report at `feature_dir/dry-run.md`. Re-runnable — the report rewrites on every invocation, sharpening as more artifacts come into existence.
+
+This is W7 from `AUTOMATION-IDEAS.md`, originally framed as a Phase 2-3 ambition. v7.8.0 ships a tight v1: ONE simulator agent, ONE report artifact. Future versions can split into multi-subagent simulation per phase if single-agent quality isn't enough.
+
+### Added
+
+- **`/ss:dry-run [FEATURE_NUM]` command** — phase-aware prediction orchestrator. Args: `--phase auto|plan|tasks|decisions|implement` (default auto), `--history-limit N` (default 20). Auto-detects effective phase by checking which artifacts exist (spec.md → plan.md → tasks.md → decision-sheet.md cascade). Mandatory: spec.md must exist (run `/ss:specify` first). Gathers signals into `.specswarm/dry-run/<FEATURE_ID>.context` heredoc bundle, dispatches the simulator subagent, parses the structured return, fires `ss_notify info`, cleans up the bundle.
+- **`agents/dry-run-simulator.md`** — high-judgment prediction subagent. Tools: Read, Write, Grep, Glob (no Bash, no network). `model: opus` (per v7.7.0 specialization — synthesis work). maxTurns: 15. Reads available artifacts + foundation + memory + intervention/verify history, writes a 9-section report covering: Current state / Anticipated strategic decisions / Risk register / Out-of-scope guards / Memory gaps / Marty touchpoint estimate / Predicted artifacts / Predicted commit cadence / Recommendations BEFORE running. Quality bar enforced in system prompt: cite real signals; skip sections you can't predict; specificity over coverage.
+
+### Architecture
+
+- **Single agent, single report.** Original plan framing implied multiple subagents per phase. Rejected for v1 — one Opus agent producing one structured artifact is cheaper, easier to validate, and captures most of the value.
+- **Phase-aware simulation.** Re-runnable at any point: after `/ss:specify` predicts plan+tasks+decisions+implement; after `/ss:plan` re-predicts narrower; after `/ss:decisions` predicts only implement. Each invocation overwrites `dry-run.md` — git history preserves prior predictions.
+- **Project-agnostic signal gathering** — foundation files at `.specswarm/{tech-stack,constitution,quality-standards,conventions,references}.md` are all optional. Memory dir via existing v7.3.0 helpers. Intervention + verify-queue history are bonuses that sharpen the report when present.
+- **Idempotent + safe.** Writes only to `feature_dir/dry-run.md`. Reading scope confined to feature dir + foundation + memory + history paths. No side effects elsewhere.
+
+### Validated
+
+Signal-gathering scaffolding tested against customcult-v3 P1.2:
+- Phase auto-detection correctly resolved to `decisions` (spec+plan+tasks present, no decision-sheet)
+- 6 artifacts present + 5 foundation files discovered
+- 66 memory files accessible for risk-pattern reading
+- Intervention history pickup confirmed via existing seed entry (postgres.js drift, status: graduated)
+
+### Where /ss:dry-run fits in the v7 toolchain
+
+| Phase | Command | When to /ss:dry-run |
+|---|---|---|
+| 1 | `/ss:specify` | After — predict plan/tasks/decisions/implement |
+| 2 | `/ss:plan` | After — re-predict with narrower scope |
+| 2.5 | `/ss:preflight` | (independent — deterministic) |
+| 3 | `/ss:decisions` | After — predict just implement |
+| 4 | `/ss:tasks` | Skip dry-run; you're committed |
+| 5 | `/ss:implement` | Skip — auto-queue + verify handle the rest |
+| 6 | `/ss:retrospective` | Skip |
+| 7 | `/ss:ship` | Skip |
+
+The win is *incremental refinement* — `/ss:dry-run` after each artifact-producing step gives a sharper picture, lets Marty redirect at the cheapest possible moment.
+
+### What v7.8.0 does NOT do
+
+- Doesn't simulate file contents (no code generation in the prediction)
+- Doesn't run `/ss:plan` or `/ss:tasks` for real — only predicts what they'd produce
+- Doesn't dispatch existing v7.x agents (decision-miner, spec-mentor, chunk-retrospective) as part of the simulation — single-agent v1 by design
+- Doesn't gate downstream commands — `/ss:plan` etc. work the same regardless of whether `dry-run.md` exists
+
+### Plan progress
+
+Tier 3 Wild Bets — 2 of 7 shipped:
+- v7.7.0 W1 (model specialization)
+- **v7.8.0 W7 (dry-run replay mode)**
+
+Tier 1 + 2 wild bets covered the full chunk lifecycle; W7 is the "predict before you commit" upstream guard.
+
+---
+
 ## [7.7.0] - 2026-05-20 - Subagent Model Specialization
 
 **Quality where it matters; speed where it doesn't.** Every SpecSwarm subagent now declares an explicit `model:` based on the cognitive workload of its job — overriding Claude Code's default of inheriting the parent session's model. Four judgment-heavy agents go to `opus` (best reasoning); the mechanical keyword-router goes to `haiku` (fast and cheap). This is W1 from the AUTOMATION-IDEAS.md plan, framed there as the lowest-effort highest-immediate-payoff wild bet.

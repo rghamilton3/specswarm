@@ -2,7 +2,7 @@
 
 ## Overview
 
-SpecSwarm is a Claude Code plugin providing spec-driven development workflows: Build, Modify, Fix, Ship. As of v6.0.0, all functionality lives in the `ss` plugin and is invoked via `/ss:*` commands (16 visible + 11 internal/hidden = 27 total — v7.1.0 `/ss:preflight`, v7.2.0 `/ss:notify`, v7.3.0 `/ss:intervention`, v7.4.0 `/ss:verify`, v7.5.0 `/ss:retrospective`, v7.6.0 `/ss:decisions`). Includes 10 natural-language skills, 5 multi-agent orchestration agents with v7.7.0 explicit model assignments (orchestrator/spec-mentor/chunk-retrospective/decision-miner on opus, task-router on haiku), and the `.specswarm/` per-project state directory (directory name preserves the SpecSwarm brand).
+SpecSwarm is a Claude Code plugin providing spec-driven development workflows: Build, Modify, Fix, Ship. As of v6.0.0, all functionality lives in the `ss` plugin and is invoked via `/ss:*` commands (17 visible + 11 internal/hidden = 28 total — v7.1.0 `/ss:preflight`, v7.2.0 `/ss:notify`, v7.3.0 `/ss:intervention`, v7.4.0 `/ss:verify`, v7.5.0 `/ss:retrospective`, v7.6.0 `/ss:decisions`, v7.8.0 `/ss:dry-run`). Includes 10 natural-language skills, 6 multi-agent orchestration agents with v7.7.0 explicit model assignments (5 on opus, 1 on haiku), and the `.specswarm/` per-project state directory (directory name preserves the SpecSwarm brand).
 
 The legacy `specswarm` plugin remains as a deprecation stub (no commands/skills/hooks) so users who installed it see a clear migration message. Slated for full removal in v7.0.0.
 
@@ -53,17 +53,19 @@ Three files must be bumped in sync:
 
 ```
 plugins/ss/
-├── commands/        # 27 slash commands (16 visible + 11 internal/hidden)
+├── commands/        # 28 slash commands (17 visible + 11 internal/hidden)
 │                    # v7.1.0: /ss:preflight     v7.2.0: /ss:notify
 │                    # v7.3.0: /ss:intervention  v7.4.0: /ss:verify
 │                    # v7.5.0: /ss:retrospective v7.6.0: /ss:decisions
+│                    # v7.8.0: /ss:dry-run
 ├── skills/          # 10 ss-* skills (ss-build, ss-fix, ss-init, ss-metrics, ss-modify, ss-release, ss-rollback, ss-ship, ss-status, ss-upgrade)
-├── agents/          # 5 agents (v7.7.0: explicit model assignments)
-│                    # — orchestrator       [opus]   multi-task dependency analysis
-│                    # — task-router        [haiku]  keyword routing (mechanical)
-│                    # — spec-mentor        [opus]   adversarial verification (v7.4.0)
-│                    # — chunk-retrospective [opus]  memory synthesis (v7.5.0)
-│                    # — decision-miner     [opus]   decision polishing (v7.6.0)
+├── agents/          # 6 agents (v7.7.0: explicit model assignments)
+│                    # — orchestrator         [opus]   multi-task dependency analysis
+│                    # — task-router          [haiku]  keyword routing (mechanical)
+│                    # — spec-mentor          [opus]   adversarial verification (v7.4.0)
+│                    # — chunk-retrospective  [opus]   memory synthesis (v7.5.0)
+│                    # — decision-miner       [opus]   decision polishing (v7.6.0)
+│                    # — dry-run-simulator    [opus]   pre-commit prediction (v7.8.0)
 ├── hooks/           # SessionStart orientation, Setup auto-init,
 │                    # PostToolUse (quality + constitution dispatcher + tasks-completion-detector [v7.4.0]),
 │                    # Stop (loop control + verify-queue-prompt [v7.4.0])
