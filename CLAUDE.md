@@ -2,7 +2,7 @@
 
 ## Overview
 
-SpecSwarm is a Claude Code plugin providing spec-driven development workflows: Build, Modify, Fix, Ship. As of v6.0.0, all functionality lives in the `ss` plugin and is invoked via `/ss:*` commands (15 visible + 11 internal/hidden = 26 total — v7.1.0 `/ss:preflight`, v7.2.0 `/ss:notify`, v7.3.0 `/ss:intervention`, v7.4.0 `/ss:verify`, v7.5.0 `/ss:retrospective`). Includes 10 natural-language skills, 4 multi-agent orchestration agents (orchestrator, task-router, spec-mentor, chunk-retrospective), and the `.specswarm/` per-project state directory (directory name preserves the SpecSwarm brand).
+SpecSwarm is a Claude Code plugin providing spec-driven development workflows: Build, Modify, Fix, Ship. As of v6.0.0, all functionality lives in the `ss` plugin and is invoked via `/ss:*` commands (16 visible + 11 internal/hidden = 27 total — v7.1.0 `/ss:preflight`, v7.2.0 `/ss:notify`, v7.3.0 `/ss:intervention`, v7.4.0 `/ss:verify`, v7.5.0 `/ss:retrospective`, v7.6.0 `/ss:decisions`). Includes 10 natural-language skills, 5 multi-agent orchestration agents (orchestrator, task-router, spec-mentor, chunk-retrospective, decision-miner), and the `.specswarm/` per-project state directory (directory name preserves the SpecSwarm brand).
 
 The legacy `specswarm` plugin remains as a deprecation stub (no commands/skills/hooks) so users who installed it see a clear migration message. Slated for full removal in v7.0.0.
 
@@ -34,27 +34,29 @@ Three files must be bumped in sync:
 
 ```
 plugins/ss/
-├── commands/        # 26 slash commands (15 visible + 11 internal/hidden)
+├── commands/        # 27 slash commands (16 visible + 11 internal/hidden)
 │                    # v7.1.0: /ss:preflight     v7.2.0: /ss:notify
 │                    # v7.3.0: /ss:intervention  v7.4.0: /ss:verify
-│                    # v7.5.0: /ss:retrospective
+│                    # v7.5.0: /ss:retrospective v7.6.0: /ss:decisions
 ├── skills/          # 10 ss-* skills (ss-build, ss-fix, ss-init, ss-metrics, ss-modify, ss-release, ss-rollback, ss-ship, ss-status, ss-upgrade)
-├── agents/          # 4 agents
+├── agents/          # 5 agents
 │                    # — orchestrator, task-router
 │                    # — spec-mentor [v7.4.0] adversarial verifier (read-only)
 │                    # — chunk-retrospective [v7.5.0] memory synthesizer (Write access)
+│                    # — decision-miner [v7.6.0] decision polisher (Read+Write to draft only)
 ├── hooks/           # SessionStart orientation, Setup auto-init,
 │                    # PostToolUse (quality + constitution dispatcher + tasks-completion-detector [v7.4.0]),
 │                    # Stop (loop control + verify-queue-prompt [v7.4.0])
 ├── lib/             # Shared shell helpers (audit-logger, agent-generator, constitution-parser, orchestrator-utils, …)
 │   ├── notify.sh        # v7.2.0: ss_notify with notifier-plugin → notify-send → osascript → bell fallbacks
-│   ├── intervention.sh  # v7.3.0: ss_intervention_* helpers for capture/list/index (reused by v7.5.0)
+│   ├── intervention.sh  # v7.3.0: ss_intervention_* helpers (reused by v7.5.0 retrospective)
 │   ├── preflight/       # v7.1.0: deterministic checks (run.sh + checks/*.sh + package-manager-detector.sh)
-│   └── verify/          # v7.4.0: adversarial verification (queue.sh, task-context.sh, detect-completion.sh)
+│   ├── verify/          # v7.4.0: adversarial verification (queue.sh, task-context.sh, detect-completion.sh)
+│   └── decisions/       # v7.6.0: decision pre-batching scanner (scan-plan.sh)
 ├── rules/           # Project-level rule references (specswarm-active-build, specswarm-feature-branch)
 ├── templates/       # Spec/plan/task templates, agent template, constitutional-hook templates
 │                    # v7.3.0 adds intervention.template.md
-└── .claude-plugin/  # plugin.json (name: "ss", version: "7.5.0")
+└── .claude-plugin/  # plugin.json (name: "ss", version: "7.6.0")
 
 plugins/specswarm/
 └── .claude-plugin/

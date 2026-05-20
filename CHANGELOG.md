@@ -5,6 +5,54 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.6.0] - 2026-05-20 - /ss:decisions — Decision Pre-Batching
+
+**The biggest Marty-time reducer in v7.x.** Mid-chunk strategic-decision interrupts during `/ss:tasks` and `/ss:implement` previously cost ~15–25 ad-hoc user prompts per chunk. v7.6.0 collapses them into ONE front-loaded touchpoint by scanning `plan.md` for strategic decisions, dispatching the `decision-miner` subagent to dedup/prioritize/polish, then asking Marty all of them via 1–2 `AskUserQuestion` calls. Answers are persisted to `decision-sheet.md` AND appended as a "Pre-Batched Decisions" section in `plan.md`, so `/ss:tasks` and `/ss:implement` see the answers without any wiring changes.
+
+Validated against customcult-v3 P1.2 plan.md: scanner found 2 conflicts (the real ones — J15 "Surface for Marty's adjudication" + corpus-conflict #3), 6 unanchored version pins, 31 multi-option hits (most noise; the agent's job to triage).
+
+### Added
+
+- **`/ss:decisions [FEATURE_NUM]` command** — orchestrator. Phase 1: resolve feature. Phase 2: deterministic scan. Phase 3: stash context. Phase 4: Claude dispatches `decision-miner` subagent. Phase 5: agent writes `decision-sheet.draft.md` with 0–8 polished decisions. Phase 6: Claude calls `AskUserQuestion` in 1–2 batches (≤4 per call). Phase 7: Claude writes final `decision-sheet.md` AND appends "Pre-Batched Decisions" section to `plan.md`. Phase 8: cleanup + `ss_notify success`. Modes: `--scan-only` (raw candidates only), `--dry-run` (scan + agent only; no questions or plan.md mutation).
+- **`agents/decision-miner.md`** — polish subagent. Tools: Read, Write, Grep, Glob (no Bash; no network). maxTurns: 10. Triages scanner candidates against plan.md context, rejects already-resolved ones, groups related candidates into single questions, ranks by impact, caps at 8. Writes `decision-sheet.draft.md` in a strict format the slash command parses. Returns `DECISIONS_WRITTEN: N` summary.
+- **`lib/decisions/scan-plan.sh`** — deterministic candidate extractor. Sourceable function `ss_scan_plan_decisions <plan_path> [foundation_dir]`. Detects 7 kinds: `clarification` (NEEDS CLARIFICATION), `conflict` (corpus-conflict / adjudication), `constitution` (P1/P2/P3 callouts; only when constitution.md exists), `version` (pinned package@x.y.z NOT anchored in tech-stack.md), `multioption` (preferred/fallback/vs/Choice:), `defer` (defer to / include in this chunk / acceptable to ship), `placeholder` (TBD/TODO/[CHOICE]/[PLACEHOLDER]). Output is TSV: `kind\tline_num\texcerpt\tcontext`. Tuned for high recall, low precision — agent does the triage.
+
+### Architecture notes
+
+- **Hybrid deterministic + agent** — pure determinism produces ugly questions; pure agent burns tokens reading plan.md from scratch. The hybrid lets the scanner narrow the agent's reading surface to a TSV of pre-identified line numbers + excerpts.
+- **Double-write integration** — `decision-sheet.md` is the canonical historical record. The "Pre-Batched Decisions" section in `plan.md` is the operational integration point: `/ss:tasks` and `/ss:implement` already read plan.md, so they see the locked answers without any code changes to those commands.
+- **AskUserQuestion 4-question limit** — Claude Code's `AskUserQuestion` accepts 1–4 questions per call. The slash command's instructions to Claude handle 5–8 decisions via two back-to-back calls in the same turn — semantically still "one batch" from Marty's perspective.
+- **Zero-decisions is PASS** — if scan finds no candidates OR the agent rejects all of them, command exits cleanly with "plan.md appears fully anchored." Tuning toward false negatives (better to miss one than ask Marty 12 useless questions).
+
+### How this fits with the v7 toolchain
+
+The full chunk lifecycle, end to end:
+
+| Step | Command | Captures |
+|---|---|---|
+| 1 | `/ss:specify` | spec.md |
+| 2 | `/ss:plan` | plan.md |
+| 3 | `/ss:preflight` (v7.1.0) | Deterministic plan.md checks |
+| 4 | **`/ss:decisions` (v7.6.0)** | **Pre-batched strategic decisions** |
+| 5 | `/ss:tasks` | tasks.md (reads Pre-Batched Decisions) |
+| 6 | `/ss:implement` | Code; auto-queues verifications (v7.4.0) |
+| 7 | `/ss:verify` + spec-mentor (v7.4.0) | Adversarial PASS/DRIFT per task |
+| 8 | `/ss:intervention` (v7.3.0) | Mid-chunk "feels off" catches |
+| 9 | `/ss:retrospective` (v7.5.0) | Distills chunk lessons to memory |
+| 10 | `/ss:ship` | Squash merge + cleanup |
+
+With v7.6.0 in place, steps 5–7 should run autonomously after step 4. Marty's path collapses from ~15–25 mid-chunk interrupts to ONE upfront batch + the occasional intervention. Combined with v7.2.0's `ss_notify` for async signal, Marty can step away during step 6.
+
+### Project-agnostic guarantees
+
+- Feature resolution via `find_feature_dir` — no hardcoded paths
+- Foundation files auto-discovered at `.specswarm/{tech-stack,constitution}.md` — each scan kind skips silently when its file is absent
+- AskUserQuestion dispatch is Claude-managed (slash command instructs; doesn't directly invoke)
+- `--scan-only` for cheap inspection; `--dry-run` for inspection-with-agent without questions
+- Zero decisions detected exits cleanly as a successful state, not an error
+
+---
+
 ## [7.5.0] - 2026-05-20 - Auto-Retrospective (/ss:retrospective + chunk-retrospective agent)
 
 **Closes the "session memory dies when session ends" failure mode.** A Claude Code session accumulates lessons across edits, decisions, drifts, and corrections; when the session ends, that knowledge evaporates. v7.5.0 adds `/ss:retrospective`, which gathers all the signals from a completed chunk and dispatches the `chunk-retrospective` subagent to distill them into 1–3 durable memory files written directly to the project's memory dir. The lessons compound chunk-over-chunk because the next chunk's spec-mentor reads them.
