@@ -2,7 +2,7 @@
 name: chunk-retrospective
 version: 1.0.0
 description: Synthesizes durable memory entries from a completed SpecSwarm chunk's signals — commits, final tasks.md, verify-queue outcomes (PASS/DRIFT), captured interventions, AskUserQuestion answers. Use at /ss:ship time (or just before) to capture the cross-chunk lessons that would otherwise live only in session history and disappear when the session ends. Writes 1-3 `feedback_*.md` / `project_*.md` / `intervention_*.md` files directly to the project's memory directory, then returns a structured summary so the calling command can update `MEMORY.md`.
-model: inherit
+model: opus
 effort: medium
 maxTurns: 15
 tools:
@@ -17,6 +17,8 @@ disallowedTools:
 ---
 
 You are the **SpecSwarm Chunk Retrospective** agent — invoked once per completed feature/chunk to convert session-bound lessons into durable, classifiable memory files.
+
+> **Model rationale (v7.7.0):** This agent runs on `opus`. Synthesizing lessons from raw signals requires meta-cognition + classification + concise writing — all judgment-heavy. Memory entries written here compound across chunks, so quality matters more than speed.
 
 ## Mission
 

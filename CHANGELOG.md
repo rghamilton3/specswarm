@@ -5,6 +5,49 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.7.0] - 2026-05-20 - Subagent Model Specialization
+
+**Quality where it matters; speed where it doesn't.** Every SpecSwarm subagent now declares an explicit `model:` based on the cognitive workload of its job — overriding Claude Code's default of inheriting the parent session's model. Four judgment-heavy agents go to `opus` (best reasoning); the mechanical keyword-router goes to `haiku` (fast and cheap). This is W1 from the AUTOMATION-IDEAS.md plan, framed there as the lowest-effort highest-immediate-payoff wild bet.
+
+### Changed
+
+- **`agents/spec-mentor.md`** — `model: inherit` → `model: opus`. Adversarial verification is the highest-stakes judgment in SpecSwarm; false PASS on real DRIFT is exactly the bug class human reviewers exist to catch. Opus's reasoning depth is the safety rail. Body gains a one-line "Model rationale" note.
+- **`agents/chunk-retrospective.md`** — `model: inherit` → `model: opus`. Synthesizing lessons from raw chunk signals requires meta-cognition + classification + concise writing. Memory entries written here compound across chunks, so quality matters more than speed.
+- **`agents/decision-miner.md`** — `model: inherit` → `model: opus`. The scanner is intentionally noisy (high recall, low precision); the agent's job is to reject ruthlessly. False positives waste Marty's time; that's the bug class Opus's reasoning depth exists to prevent.
+- **`agents/orchestrator.md`** — `model: inherit` → `model: opus`. With `maxTurns: 50` and high effort, multi-task dependency analysis benefits substantially from a more capable reasoner.
+- **`agents/task-router.md`** — added `model: haiku` (was previously undeclared, defaulting to inherit). Routing is keyword pattern-matching against a fixed rule table — pure mechanical work where Haiku's speed and price/performance dominate.
+
+### Design rationale
+
+**Why hard-set instead of `inherit`?** Subagents have specific jobs. Their model affinity is a *design property* of the agent, not a user preference. A user who explicitly wants a different model can edit one frontmatter line. The default should encode the design intent — that's the W1 thesis.
+
+**Why shorthand (`opus`/`haiku`) instead of specific IDs (`claude-opus-4-7`)?** Forward-compatibility. When Anthropic ships Opus 4.8, the agents auto-track without a SpecSwarm version bump.
+
+### Cost implications by parent-session model
+
+This release changes spend per agent invocation, not per chunk overall. Net effect depends on which agents fire most.
+
+| Parent session | Effect |
+|---|---|
+| **opus** | Marginal decrease — task-router becomes cheaper; the 4 judgment agents stay the same |
+| **sonnet** | Mixed — 4 judgment agents go up (more spend), task-router goes down (less); net depends on agent dispatch frequency |
+| **haiku** | Spend increase on judgment agents; this is the scenario where v7.7.0 explicitly chooses to spend money to recover quality on the work that matters |
+
+If cost control matters more than verification quality on a given project, override any single agent by editing its `model:` line in `plugins/ss/agents/*.md`.
+
+### Validated
+
+`claude plugin validate` passes for both the `ss` plugin and the `specswarm` deprecation stub. All five agent files retain valid YAML frontmatter; the body Model rationale notes are inserted as Markdown blockquotes (no impact on agent dispatch).
+
+### What v7.7.0 does NOT do
+
+- Doesn't touch parent-session model — that remains Marty's choice when launching Claude Code
+- Doesn't add new agents — only changes the 5 existing ones
+- Doesn't introduce model-fallback logic — if `opus` is unavailable on a Claude Code installation, the user gets a clean error rather than a silent quality regression
+- Doesn't gate model choice by Anthropic API tier — that's the user's account property, not a plugin concern
+
+---
+
 ## [7.6.0] - 2026-05-20 - /ss:decisions — Decision Pre-Batching
 
 **The biggest Marty-time reducer in v7.x.** Mid-chunk strategic-decision interrupts during `/ss:tasks` and `/ss:implement` previously cost ~15–25 ad-hoc user prompts per chunk. v7.6.0 collapses them into ONE front-loaded touchpoint by scanning `plan.md` for strategic decisions, dispatching the `decision-miner` subagent to dedup/prioritize/polish, then asking Marty all of them via 1–2 `AskUserQuestion` calls. Answers are persisted to `decision-sheet.md` AND appended as a "Pre-Batched Decisions" section in `plan.md`, so `/ss:tasks` and `/ss:implement` see the answers without any wiring changes.

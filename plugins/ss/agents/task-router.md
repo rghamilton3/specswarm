@@ -1,10 +1,13 @@
 ---
 name: task-router
 description: Routes tasks to specialist agents based on content keyword analysis. Used by the orchestrator for multi-agent builds.
+model: haiku
 effort: low
 ---
 
 # Task Router Configuration
+
+> **Model rationale (v7.7.0):** This agent runs on `haiku`. Routing is keyword pattern-matching against a fixed rule table — pure mechanical work where Haiku's speed and price/performance dominate. Running it on Opus would be 10× the cost for no measurable quality gain on a lookup task.
 
 ## Agent Type Mappings
 

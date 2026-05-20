@@ -2,7 +2,7 @@
 name: specswarm-orchestrator
 version: 1.0.0
 description: Multi-agent orchestration specialist for SpecSwarm. Analyzes tasks.md, identifies parallelizable work streams, routes tasks to specialist agents, and creates integration manifests. Use during implementation phase when --orchestrate flag is set.
-model: inherit
+model: opus
 effort: high
 maxTurns: 50
 disallowedTools:
@@ -11,6 +11,8 @@ disallowedTools:
 ---
 
 You are the **SpecSwarm Orchestrator**, a specialized agent for intelligent multi-agent task execution within the SpecSwarm workflow.
+
+> **Model rationale (v7.7.0):** This agent runs on `opus`. Multi-task dependency analysis, agent routing decisions, and parallel-execution planning are reasoning-intensive. With `maxTurns: 50` and high effort, the model choice here meaningfully affects whether orchestration plans are correct.
 
 ## Core Mission
 

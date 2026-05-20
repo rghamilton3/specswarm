@@ -2,9 +2,28 @@
 
 ## Overview
 
-SpecSwarm is a Claude Code plugin providing spec-driven development workflows: Build, Modify, Fix, Ship. As of v6.0.0, all functionality lives in the `ss` plugin and is invoked via `/ss:*` commands (16 visible + 11 internal/hidden = 27 total — v7.1.0 `/ss:preflight`, v7.2.0 `/ss:notify`, v7.3.0 `/ss:intervention`, v7.4.0 `/ss:verify`, v7.5.0 `/ss:retrospective`, v7.6.0 `/ss:decisions`). Includes 10 natural-language skills, 5 multi-agent orchestration agents (orchestrator, task-router, spec-mentor, chunk-retrospective, decision-miner), and the `.specswarm/` per-project state directory (directory name preserves the SpecSwarm brand).
+SpecSwarm is a Claude Code plugin providing spec-driven development workflows: Build, Modify, Fix, Ship. As of v6.0.0, all functionality lives in the `ss` plugin and is invoked via `/ss:*` commands (16 visible + 11 internal/hidden = 27 total — v7.1.0 `/ss:preflight`, v7.2.0 `/ss:notify`, v7.3.0 `/ss:intervention`, v7.4.0 `/ss:verify`, v7.5.0 `/ss:retrospective`, v7.6.0 `/ss:decisions`). Includes 10 natural-language skills, 5 multi-agent orchestration agents with v7.7.0 explicit model assignments (orchestrator/spec-mentor/chunk-retrospective/decision-miner on opus, task-router on haiku), and the `.specswarm/` per-project state directory (directory name preserves the SpecSwarm brand).
 
 The legacy `specswarm` plugin remains as a deprecation stub (no commands/skills/hooks) so users who installed it see a clear migration message. Slated for full removal in v7.0.0.
+
+## Subagent Model Specialization (v7.7.0)
+
+Each subagent's `model:` frontmatter is set explicitly based on the cognitive workload of its job. This overrides Claude Code's default of inheriting the parent session's model — because an agent's model affinity is a *design property*, not a user preference.
+
+| Agent | Model | Why |
+|---|---|---|
+| `orchestrator` | `opus` | Multi-task dependency analysis with `maxTurns: 50`; reasoning depth matters |
+| `spec-mentor` | `opus` | Adversarial verification — false PASS on real DRIFT is the bug class to prevent |
+| `chunk-retrospective` | `opus` | Synthesis + classification + concise writing of memory entries that compound |
+| `decision-miner` | `opus` | Triage scanner candidates (high recall, low precision); rejection requires judgment |
+| `task-router` | `haiku` | Pure keyword pattern-match against a fixed rule table; speed/cost dominates |
+
+**Cost implications by parent-session model:**
+- Parent on opus → marginal decrease (task-router cheaper, judgment agents same)
+- Parent on sonnet → judgment agents go up, task-router down — net depends on which agents fire most often during your chunks
+- Parent on haiku → judgment agents go up substantially; this is the scenario where v7.7.0 spends real money to recover quality
+
+**To override** for cost-control or experimentation, edit the `model:` line in any `plugins/ss/agents/*.md` file. Use shorthand (`opus`/`sonnet`/`haiku`) for forward-compatibility with future Claude model releases.
 
 ## Development
 
@@ -39,11 +58,12 @@ plugins/ss/
 │                    # v7.3.0: /ss:intervention  v7.4.0: /ss:verify
 │                    # v7.5.0: /ss:retrospective v7.6.0: /ss:decisions
 ├── skills/          # 10 ss-* skills (ss-build, ss-fix, ss-init, ss-metrics, ss-modify, ss-release, ss-rollback, ss-ship, ss-status, ss-upgrade)
-├── agents/          # 5 agents
-│                    # — orchestrator, task-router
-│                    # — spec-mentor [v7.4.0] adversarial verifier (read-only)
-│                    # — chunk-retrospective [v7.5.0] memory synthesizer (Write access)
-│                    # — decision-miner [v7.6.0] decision polisher (Read+Write to draft only)
+├── agents/          # 5 agents (v7.7.0: explicit model assignments)
+│                    # — orchestrator       [opus]   multi-task dependency analysis
+│                    # — task-router        [haiku]  keyword routing (mechanical)
+│                    # — spec-mentor        [opus]   adversarial verification (v7.4.0)
+│                    # — chunk-retrospective [opus]  memory synthesis (v7.5.0)
+│                    # — decision-miner     [opus]   decision polishing (v7.6.0)
 ├── hooks/           # SessionStart orientation, Setup auto-init,
 │                    # PostToolUse (quality + constitution dispatcher + tasks-completion-detector [v7.4.0]),
 │                    # Stop (loop control + verify-queue-prompt [v7.4.0])
