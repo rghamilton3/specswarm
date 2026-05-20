@@ -5,6 +5,74 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.9.0] - 2026-05-20 - /ss:watchdog — Mentor Watchdog Daemon (W5)
+
+**Completes the autonomous-execution loop by surviving session restarts.** v7.4.0's PostToolUse hooks only fire while a Claude Code session is active. The watchdog is a background bash daemon that polls a project's git + verify-queue state at a configurable interval, auto-enqueues newly-checked tasks from new commits, and pings Marty via `ss_notify urgent` when anything gets flagged. Marty can fully step away during `/ss:implement` and trust that something will catch the work even if his Claude session ends.
+
+This is W5 from `AUTOMATION-IDEAS.md`. The plan's framing emphasized headless `claude --print` dispatch for spec-mentor verification — that's shipped as an EXPERIMENTAL `--with-verify` flag (off by default). The default mode is deterministic-only and burns zero LLM tokens.
+
+### Added
+
+- **`/ss:watchdog [SUBCOMMAND]` command** — daemon control surface.
+  - `start` — launch the daemon in the background via `nohup setsid bash run.sh`. PID file at `.specswarm/watchdog.pid`. Detached from the launching shell.
+  - `stop` — SIGTERM the running daemon, wait up to 3s for clean exit, SIGKILL fallback. Removes PID file.
+  - `status` (default) — show running state, PID, log/state file paths, and persisted state contents.
+  - `logs` — tail the log file (`--tail N` controls line count, default 40).
+  - `once` — run a single check cycle in the foreground (debugging).
+  - Args: `--interval N` (polling seconds, default 30, min 5), `--with-verify` (EXPERIMENTAL — headless `claude --print` dispatch on pending verifications), `--tail N` (log tail count).
+
+- **`lib/watchdog/state.sh`** — single source of truth for daemon state. Public API: `ss_watchdog_pid_file`, `ss_watchdog_log_file`, `ss_watchdog_state_file`, `ss_watchdog_is_running` (auto-cleans stale PID files), `ss_watchdog_get` / `ss_watchdog_set` (atomic key=value persistence), `ss_watchdog_log` (timestamped append), `ss_watchdog_rotate_log` (truncates at 1MB, keeps last 1MB), `ss_watchdog_state_init` (clear/seed on daemon start).
+
+- **`lib/watchdog/check-cycle.sh`** — one check pass, runnable standalone (used by `/ss:watchdog once` for debugging and by the daemon loop). Detects: new commits via `git rev-parse HEAD` delta, newly-checked tasks via commit-range diff (`git diff <last>..<current>`), queue size changes. Auto-queues new tasks via existing `ss_verify_queue_add` from v7.4.0. Fires `ss_notify urgent` on flagged-count growth. `--with-verify` mode dispatches detached `claude --print "Run /ss:verify --all"` when pending exists.
+
+- **`lib/watchdog/run.sh`** — daemon main loop. Writes PID, traps SIGTERM/SIGINT for clean shutdown (removes PID file, logs final line), runs `timeout 60 bash check-cycle.sh` per tick, sleeps for the configured interval, repeats indefinitely.
+
+### Architecture
+
+- **Why polling instead of inotify/fswatch.** Cross-platform: bash + git + sleep work everywhere. inotify is Linux-only; fswatch needs separate install. 30s polling is cheap (just `git rev-parse HEAD`).
+- **Why two-tier (deterministic default + opt-in LLM).** Headless `claude --print` is expensive and may need tweaks per Claude Code version. Shipping deterministic-only as default makes W5 useful immediately. The `--with-verify` flag is shipped wired but explicitly marked EXPERIMENTAL.
+- **Why per-project (not global) state.** Each project's `.specswarm/watchdog.{pid,log,state}` is isolated. Different projects can each run their own watchdog without conflict.
+- **Why commit-range diff (not working-tree diff) for completion detection.** v7.4.0's `ss_detect_newly_checked` uses `git diff HEAD -- tasks.md` (working tree vs HEAD). After a commit lands, working tree matches HEAD — diff is empty. The watchdog inlines `git diff <last_commit>..<current_commit>` to catch flips inside the new commits. Important architectural difference: in-session detection vs out-of-session detection.
+- **Why graceful SIGTERM shutdown.** Daemons leak state if they die unexpectedly. The `trap cleanup TERM INT` handler logs the shutdown and removes the PID file. `kill -9` is the SIGKILL fallback only if SIGTERM doesn't take after 3s.
+
+### Validated end-to-end
+
+Sandbox fixture lifecycle test:
+1. ✅ `start` — detached daemon, PID file written, state initialized
+2. ✅ First check cycle — initialization commit recorded
+3. ✅ New commit (T002 flip) — detected within next polling interval
+4. ✅ Auto-queue — `T002.pending` written with full context
+5. ✅ State sync — `last_queue_pending: 0 → 1` logged + persisted
+6. ✅ `stop` — SIGTERM received, "daemon shutting down" logged, PID file removed
+
+### Operational considerations
+
+- **One daemon per project.** PID-file check prevents duplicates within a project. Different projects each get their own.
+- **Log rotation.** Auto-truncates at 1 MB. Keeps last 1 MB.
+- **Polling interval.** Default 30s. Minimum 5s.
+- **Resource use.** Daemon mostly sleeps. Each check cycle runs in milliseconds unless `--with-verify` dispatches headless Claude.
+- **System restart.** v7.9.0 doesn't auto-restart on reboot. Re-run `/ss:watchdog start` after restart. (A systemd unit template could land in a future version.)
+- **`--with-verify` is experimental.** Assumes `claude` CLI is in PATH and supports `--print`. Failures are logged but never fatal.
+
+### Project-agnostic guarantees
+
+- No hardcoded paths (state lives under repo root's `.specswarm/`)
+- Skips silently if not in a git repo
+- All hook integrations are optional — watchdog works even if no verify-queue exists yet
+- `ss_notify` graceful fallback (notifier plugin → notify-send → osascript → bell)
+- Works on Linux + macOS (bash + git + sleep + nohup + setsid)
+
+### Plan progress
+
+Tier 3 Wild Bets — 3 of 7 shipped:
+- v7.7.0 W1 (model specialization)
+- v7.8.0 W7 (dry-run replay mode)
+- **v7.9.0 W5 (mentor watchdog daemon)**
+
+With v7.4.0 + v7.9.0 combined, the verification loop is *fully* autonomous: in-session via PostToolUse + Stop hooks, out-of-session via the watchdog daemon. Marty can step away from the keyboard during long `/ss:implement` runs and trust the system to surface what needs his attention.
+
+---
+
 ## [7.8.0] - 2026-05-20 - /ss:dry-run — Predict Before You Commit (W7)
 
 **The cheapest insurance against committing to the wrong chunk shape.** `/ss:dry-run` reads the current state of a SpecSwarm feature (whatever artifacts exist), foundation files, memory dir contents, intervention history, and verify-queue outcomes, then dispatches the `dry-run-simulator` subagent to write a structured 9-section prediction report at `feature_dir/dry-run.md`. Re-runnable — the report rewrites on every invocation, sharpening as more artifacts come into existence.
