@@ -5,6 +5,45 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.0] - 2026-05-20 - /ss:intervention — Capture "Something Feels Off" as Training Data
+
+**`/ss:intervention` captures the moment you notice something the automation missed and writes it as a durable memory file — closing the meta-loop where today's manual catch becomes tomorrow's automatic catch.** Each intervention is a 4-field observation (noticed / should-have-caught / prevention / status) that may later graduate into a preflight check, a spec-mentor pattern, a constitution hook, or a deterministic guard. After 10–15 interventions in a project, patterns repeat — and that's where new automation comes from.
+
+### Added
+
+- **`/ss:intervention` command** — capture "wait, something feels off" moments. Args path: `/ss:intervention "noticed text" --should "..." --prevent "..." --status open|graduated|wontfix --feature ID --task ID`. Interactive path: bare `/ss:intervention` returns a `<<<INTERACTIVE>>>` signal for Claude to walk through 4 `AskUserQuestion` prompts. List path: `/ss:intervention --list [N]` shows the most recent N captures with their status.
+- **`lib/intervention.sh`** — public helpers:
+  - `ss_intervention_dir` — project-agnostic location discovery (3-tier cascade)
+  - `ss_intervention_context` — auto-sniff feature / task / branch / last commit
+  - `ss_intervention_slug` + `ss_intervention_filename` — `intervention_YYYY-MM-DD_<slug>.md`
+  - `ss_intervention_write` — template substitution + atomic write
+  - `ss_intervention_index_update` — appends to `MEMORY.md` under a `## Interventions` section
+  - `ss_intervention_list` — chronological listing across all candidate dirs
+- **`templates/intervention.template.md`** — frontmatter (`type: intervention`, `status`, `date`, `feature`, `task`) + 4 body sections.
+- **Notifier integration** — successful capture fires an `info`-level `ss_notify` (cheap success signal; respects 10s debounce).
+
+### Changed
+
+- **`lib/references-loader.sh`** — classifier extended to recognize `intervention_*.md` as a new memory kind. `ss_memory_classify_kind` returns `intervention`; `ss_memory_scan_files` and `ss_memory_count_by_kind` updated to include the new prefix. Downstream consumers that filter by kind (e.g., `/ss:init` extracting principles from `feedback_*`) are unaffected — interventions are raw observations, not rules.
+
+### Project-agnostic discovery (location cascade)
+
+1. **First memory dir declared in `.specswarm/references.md`** (preferred — matches existing SpecSwarm convention)
+2. **`<repo-root>/memory/`** if it exists with sibling `MEMORY.md`
+3. **`<repo-root>/.specswarm/interventions/`** as a project-local git-trackable fallback
+
+### Lifecycle
+
+- **open** — captured, not yet codified anywhere
+- **graduated** — pattern was turned into a deterministic check, hook, or principle (e.g., the postgres.js drift → v7.1.0's version-currency check)
+- **wontfix** — judged not worth automating (one-off oddity / false alarm)
+
+### Why this matters
+
+Adversarial verification (the dual mentor↔builder session pattern) catches ~6 bugs per chunk. Many of those catches follow recurring patterns. Capturing each as an intervention turns institutional knowledge into searchable, classifiable, automatable training data — the foundation for the spec-mentor agent (planned Idea 3), expanded preflight checks (Idea 1 extensions), and self-improving constitution hooks.
+
+---
+
 ## [7.2.0] - 2026-05-20 - Notification Helper + /ss:notify
 
 **`/ss:notify` plus `ss_notify` helper add semantic notifications to SpecSwarm workflows with cascading cross-platform fallbacks.** The convocli-notifier plugin (when installed) already fires on every Claude Code Stop event — this release adds *differentiated* notifications: urgent/success/info with corresponding sounds, fired at specific workflow moments (preflight FAIL, build complete, manual ping). Works on any project regardless of installed plugins; silently no-ops only if none of the four notification tiers is available.

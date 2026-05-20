@@ -170,10 +170,11 @@ ss_references_resolve_path() {
 # expected naming conventions. Echoes one absolute file path per line.
 #
 # Conventions matched (Claude Code memory system):
-#   feedback_*.md   — opinionated rules / preferences
-#   project_*.md    — project-state context
-#   reference_*.md  — cross-references to external systems
-#   user_*.md       — user-profile entries (role, expertise, etc.)
+#   feedback_*.md       — opinionated rules / preferences
+#   project_*.md        — project-state context
+#   reference_*.md      — cross-references to external systems
+#   user_*.md           — user-profile entries (role, expertise, etc.)
+#   intervention_*.md   — captured "wait, something feels off" moments (v7.3.0)
 #
 # Silent + empty output when references.md is missing OR has no memory dirs.
 # Symlinks are followed; non-existent dirs are skipped silently.
@@ -187,7 +188,8 @@ ss_memory_scan_files() {
       \( -name "feedback_*.md" \
       -o -name "project_*.md" \
       -o -name "reference_*.md" \
-      -o -name "user_*.md" \) \
+      -o -name "user_*.md" \
+      -o -name "intervention_*.md" \) \
       2>/dev/null
   done < <(ss_references_memory_dirs) | sort -u
 }
@@ -205,11 +207,12 @@ ss_memory_classify_kind() {
   local filename
   filename="$(basename "$1" 2>/dev/null)"
   case "$filename" in
-    feedback_*)  echo "feedback" ;;
-    project_*)   echo "project" ;;
-    reference_*) echo "reference" ;;
-    user_*)      echo "user" ;;
-    *)           echo "other" ;;
+    feedback_*)     echo "feedback" ;;
+    project_*)      echo "project" ;;
+    reference_*)    echo "reference" ;;
+    user_*)         echo "user" ;;
+    intervention_*) echo "intervention" ;;
+    *)              echo "other" ;;
   esac
 }
 
@@ -217,14 +220,14 @@ ss_memory_classify_kind() {
 # Useful for /ss:init UX ("Found N feedback files, M project files, K reference files…").
 ss_memory_count_by_kind() {
   local file
-  declare -A counts=( [feedback]=0 [project]=0 [reference]=0 [user]=0 [other]=0 )
+  declare -A counts=( [feedback]=0 [project]=0 [reference]=0 [user]=0 [intervention]=0 [other]=0 )
   while IFS= read -r file; do
     [ -z "$file" ] && continue
     kind=$(ss_memory_classify_kind "$file")
     counts[$kind]=$((${counts[$kind]:-0} + 1))
   done < <(ss_memory_scan_files)
 
-  for kind in feedback project reference user other; do
+  for kind in feedback project reference user intervention other; do
     printf "%s\t%d\n" "$kind" "${counts[$kind]:-0}"
   done
 }
