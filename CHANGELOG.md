@@ -5,6 +5,36 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.1.0] - 2026-05-20 - Deterministic Preflight Checks
+
+**`/ss:preflight` runs 5 deterministic checks against a feature's `plan.md` in <5 seconds, catching the failure modes that previously required a human reviewer or a second Claude Code session.** Each check discovers project context through SpecSwarm's existing infrastructure (`.specswarm/references.md`, lockfiles, git root) — no project-specific configuration required. The checks are pure pattern recognition: zero LLM calls, no token cost, fully project-agnostic.
+
+Validated retroactively against `customcult-v3` P1.2 plan.md: caught a real npm-package-name drift (`postgres.js@3.4.9` written as a pin while the actual npm package is `postgres`) that would have surfaced as an install failure during `/ss:implement`.
+
+### Added
+
+- **`/ss:preflight` command** — runs all 5 checks against a target plan.md. Auto-discovers the most-recent feature, accepts `--feature NUM` or a positional path, supports `--json` for CI integration, supports `--quiet` for summary-only output. Exit code 0 = pass, 1 = warn, 2 = fail.
+- **`lib/preflight/run.sh`** — orchestrator. Iterates checks, aggregates `PASS|WARN|FAIL` first-line summaries, renders a human or JSON report. Each check runs in isolation so a single failure doesn't poison the others.
+- **`lib/preflight/package-manager-detector.sh`** — detects pnpm / npm / yarn / bun / pip / poetry / uv / cargo / go / gem from lockfiles (priority order) with manifest-file fallback. Maps to public registries: npm, PyPI, crates.io, proxy.golang.org, rubygems.org. Exposes `ss_version_check` with a 24h filesystem cache at `~/.cache/specswarm/version-check/`.
+- **`lib/preflight/checks/version-currency.sh`** — extracts `name@version` style pins from plan.md per detected ecosystem, queries the appropriate registry, flags packages that don't exist or were yanked. Skips silently if no package manager is detected.
+- **`lib/preflight/checks/memory-coverage.sh`** — verifies every memory-file reference in plan.md (both direct paths and `[[wiki-link]]` slugs matching `feedback_*` / `project_*` / `reference_*` / `user_*` conventions) resolves to a real file under a memory dir declared in `.specswarm/references.md`. Also flags orphaned memory files not indexed in `MEMORY.md`. Skips silently if no memory dirs are declared.
+- **`lib/preflight/checks/spec-section-existence.sh`** — verifies every `§X.Y` section reference in plan.md resolves to a heading in at least one spec-corpus document declared in `.specswarm/references.md`. Supports glob patterns in corpus paths. Skips silently if no corpus is declared.
+- **`lib/preflight/checks/grep-word-boundary.sh`** — flags grep/rg invocations in plan.md that use short literal alpha patterns without word boundaries (the npm/pnpm substring-trap class of bug). Pure regex, no project context required.
+- **`lib/preflight/checks/heading-fidelity.sh`** — when plan.md quotes a spec heading verbatim alongside a `§X.Y` reference, verifies the quoted text exactly matches at least one heading in the spec corpus. Catches typos like "5 riding styles" vs "5 ride styles".
+
+### Why this matters
+
+Real SpecSwarm chunks accumulate a small set of recurring failure modes:
+- Hallucinated or typo'd package versions
+- Memory file references that no longer exist
+- `§X.Y` references that drift between plan and source spec
+- Substring grep patterns that produce false-positive verification claims
+- Quoted heading text that mismatches the canonical heading
+
+Each of these can be detected deterministically without an LLM. `/ss:preflight` makes them a 5-second `PreToolUse`-style gate before `/ss:implement`, replacing the dual-session "mentor reviews builder" pattern with mechanical pattern-recognition. Adversarial verification still has value for judgment calls — but the deterministic 50% is no longer a human's job.
+
+---
+
 ## [7.0.0] - 2026-05-19 - Subagent-Driven Foundation File Generation
 
 ### v7.0.0-rc.5 (2026-05-19) — rich-corpus acceptance fixes

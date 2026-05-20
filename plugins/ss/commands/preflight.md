@@ -1,0 +1,100 @@
+---
+description: Run deterministic preflight checks against a feature's plan.md before /ss:implement. Catches hallucinated versions, missing memory files, spec drift, ambiguous grep patterns, and heading typos in <5 seconds.
+effort: low
+args:
+  - name: target
+    description: Path to plan.md (or any markdown file) to check. Defaults to the most recent feature's plan.md.
+    required: false
+  - name: --feature
+    description: Feature number to check (e.g., --feature 002). Mutually exclusive with positional target.
+    required: false
+  - name: --json
+    description: Emit results as JSON instead of human-readable output.
+    required: false
+  - name: --quiet
+    description: Suppress per-check detail lines (show only summary lines).
+    required: false
+---
+
+# SpecSwarm Preflight
+
+Runs 5 deterministic checks against the current feature's `plan.md` and surfaces issues that would otherwise be caught by manual review (or worse, slip through to `/ss:implement`).
+
+**Project-agnostic** — every check discovers project context via existing SpecSwarm infrastructure (`.specswarm/references.md`, lockfiles, git root). No project-specific configuration required.
+
+## Run Preflight
+
+```bash
+PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RUNNER="${PLUGIN_DIR}/lib/preflight/run.sh"
+
+if [ ! -x "$RUNNER" ]; then
+  echo "❌ Preflight runner not found or not executable: $RUNNER"
+  exit 2
+fi
+
+"$RUNNER" "$@"
+```
+
+## Checks Performed
+
+| Check | What it catches | Skip condition |
+|---|---|---|
+| **version-currency** | Hallucinated, typo'd, or yanked package versions | No package manager / lockfile detected |
+| **memory-coverage** | References to missing memory files; orphan files not in MEMORY.md | No memory dirs declared in references.md |
+| **spec-section-existence** | `§X.Y` refs that don't resolve to any spec corpus heading | No spec corpus declared in references.md |
+| **grep-word-boundary** | Short literal grep patterns prone to false positives | No grep/rg invocations in plan.md |
+| **heading-fidelity** | Quoted headings whose text doesn't match the source | No quoted `§X.Y "..."` patterns |
+
+Each check independently emits `PASS`, `WARN`, or `FAIL`. The overall exit code is the worst result:
+
+- **0** — all PASS (or some SKIP)
+- **1** — at least one WARN, no FAIL
+- **2** — at least one FAIL (`/ss:implement` should not run until resolved)
+
+## How Project-Agnostic Discovery Works
+
+1. **Package manager** — detected from lockfiles in this priority order: `pnpm-lock.yaml`, `bun.lock(b)`, `yarn.lock`, `package-lock.json`, `poetry.lock`, `uv.lock`, `Pipfile.lock`, `Cargo.lock`, `Gemfile.lock`, `go.sum`. Falls back to manifest files (`package.json`, `pyproject.toml`, etc.) if no lockfile present. Maps to public registries: npm / PyPI / crates.io / proxy.golang.org / rubygems.org.
+
+2. **Spec corpus** — read from `.specswarm/references.md` under the `## Spec corpus` section. Glob patterns supported. Relative paths resolve against the repo root.
+
+3. **Memory directories** — read from `.specswarm/references.md` under the `## Memory directories` section. Tilde expansion supported. Both Claude Code's auto-memory path (`~/.claude/projects/.../memory/`) and project-local dirs work.
+
+4. **Feature location** — uses SpecSwarm's standard `.specswarm/features/NNN-name/plan.md` convention. The runner auto-discovers the most recent feature unless `--feature NUM` or a path is given.
+
+If a piece of project context is missing (e.g., no `references.md` exists yet, or no lockfile), the affected check **skips silently** and the overall preflight still runs.
+
+## Usage
+
+```bash
+# Auto-discover most recent feature's plan.md
+/ss:preflight
+
+# Specific feature
+/ss:preflight --feature 002
+
+# Arbitrary file (e.g., a draft outside .specswarm/features/)
+/ss:preflight ./drafts/migration-plan.md
+
+# JSON output for CI integration
+/ss:preflight --json
+
+# Suppress per-finding detail lines (summary only)
+/ss:preflight --quiet
+```
+
+## Recommended Workflow Integration
+
+Run `/ss:preflight` immediately after `/ss:plan` completes and before `/ss:tasks`. This is the cheapest possible insurance against the most common failure modes catalogued in real-world SpecSwarm chunks:
+
+- Version-anchor incidents (4× in customcult-v3 P1.1+P1.2)
+- Memory file gaps (7× in P1.1)
+- npm/pnpm substring grep traps
+- Spec corpus drift between `BUILDER-GUIDE.md` and source docs
+- Heading-text drift between plan and spec
+
+Each of these used to require a separate "mentor session" or human reviewer to catch. Preflight catches them in <5 seconds with zero LLM cost.
+
+## Cache
+
+Version-currency results are cached at `~/.cache/specswarm/version-check/<registry>/<pkg>@<ver>` with a 24h TTL. Delete that directory to force re-verification.
