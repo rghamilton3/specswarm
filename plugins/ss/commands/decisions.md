@@ -101,11 +101,13 @@ fi
 FOUNDATION="${REPO_ROOT}/.specswarm"
 TECH_STACK="${FOUNDATION}/tech-stack.md"
 CONSTITUTION="${FOUNDATION}/constitution.md"
+QUALITY_STANDARDS="${FOUNDATION}/quality-standards.md"
 
 echo "🔍 Decisions for $FEATURE_ID"
-echo "  plan.md:        $PLAN_PATH"
-echo "  tech-stack.md:  $([ -f "$TECH_STACK" ] && echo "$TECH_STACK" || echo "(absent — version-anchor check skipped)")"
-echo "  constitution:   $([ -f "$CONSTITUTION" ] && echo "$CONSTITUTION" || echo "(absent — constitution callout check skipped)")"
+echo "  plan.md:          $PLAN_PATH"
+echo "  tech-stack.md:    $([ -f "$TECH_STACK" ] && echo "$TECH_STACK" || echo "(absent — version-anchor check skipped)")"
+echo "  constitution:     $([ -f "$CONSTITUTION" ] && echo "$CONSTITUTION" || echo "(absent — constitution callout check skipped)")"
+echo "  quality-standards:$([ -f "$QUALITY_STANDARDS" ] && echo " $QUALITY_STANDARDS" || echo " (absent — prior-commitments check skipped)")"
 echo ""
 ```
 
@@ -154,6 +156,7 @@ fi
   echo "plan_path=${PLAN_PATH}"
   echo "tech_stack_path=$([ -f "$TECH_STACK" ] && echo "$TECH_STACK" || echo "")"
   echo "constitution_path=$([ -f "$CONSTITUTION" ] && echo "$CONSTITUTION" || echo "")"
+  echo "quality_standards_path=$([ -f "$QUALITY_STANDARDS" ] && echo "$QUALITY_STANDARDS" || echo "")"
   echo "output_path=${DRAFT_PATH}"
   echo "memory_dir=${MEM_DIR}"
   echo "candidates<<EOF_CANDIDATES"
@@ -183,6 +186,7 @@ echo ""
    plan_path: <PLAN_PATH>
    tech_stack_path: <TECH_STACK or empty>
    constitution_path: <CONSTITUTION or empty>
+   quality_standards_path: <QUALITY_STANDARDS or empty>
    output_path: <DRAFT_PATH>
    memory_dir: <MEM_DIR>
 

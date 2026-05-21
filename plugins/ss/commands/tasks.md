@@ -22,6 +22,30 @@ $ARGUMENTS
 
 You **MUST** consider the user input before proceeding (if not empty).
 
+## Canonical Task Line Format (REQUIRED — v7.11.0)
+
+Every task in `tasks.md` **MUST** be written as a canonical Markdown checkbox:
+
+```markdown
+- [ ] T001 [P] [US1] <imperative task description> — <relative/file/path>
+```
+
+Rules:
+- Start each task line with `- [ ] T###` (a literal Markdown checkbox, a space, then the zero-padded task ID).
+- The checkbox is the source of truth for completion. When a task is finished it becomes `- [X] T###`.
+- `[P]` (parallelizable) and `[US#]` (user-story) tags are optional and come after the ID.
+- This format is **language- and stack-agnostic** — it carries only the task ID, tags, a description, and an optional file path. It works identically for a Python, Go, Rust, or TypeScript project.
+
+**Why this is mandatory:** SpecSwarm's `tasks-completion-detector` PostToolUse hook watches `tasks.md` for checkbox flips (`- [ ] T###` → `- [X] T###`) and auto-queues each completed task for adversarial `/ss:verify` review. The detector regex is:
+
+```
+^[[:space:]]*-[[:space:]]+\[[xX]\][[:space:]]+T[0-9]+
+```
+
+If tasks are emitted in a heading-only format (e.g. `### T001. …`) the detector finds **zero** matches, the verify-queue stays empty for the whole chunk, and the chunk ships with no per-task spec-mentor verification. Earlier versions emitted heading-form tasks, which silently disabled this layer. The canonical checkbox is now required to keep auto-verification working for every project.
+
+**Supplementary detail blocks are allowed but never replace the checkbox.** If you also emit `### T001 …` headings or a dependency-graph block for human/agent readability, that is fine — but a flat canonical `- [ ] T### …` checkbox list MUST still be present (either as the primary task lines, or as a dedicated `## Tasks` / `## Completion Tracker` checklist that mirrors every task ID). The checkbox list is what gets ticked and what the hook reads.
+
 ## Outline
 
 1. **Discover Feature Context**:
@@ -158,11 +182,13 @@ You **MUST** consider the user input before proceeding (if not empty).
      - [P] markers for parallelizable tasks within each story
      - Checkpoint markers after each story phase
    - Final Phase: Polish & cross-cutting concerns
-   - Numbered tasks (T001, T002...) in execution order
+   - **Numbered tasks (T001, T002...) in execution order, each written as a canonical `- [ ] T### …` Markdown checkbox** (see "Canonical Task Line Format" above — REQUIRED for verify-queue auto-detection)
    - Clear file paths for each task
    - Dependencies section showing story completion order
    - Parallel execution examples per story
    - Implementation strategy section (MVP first, incremental delivery)
+
+4b. **Verify canonical checkbox format before reporting**: After writing `tasks.md`, confirm every task is a canonical checkbox by checking that the count of lines matching `^[[:space:]]*-[[:space:]]+\[[ xX]\][[:space:]]+T[0-9]+` equals the total task count. If any task is missing its `- [ ] T###` checkbox, fix it before reporting — otherwise the `tasks-completion-detector` hook will silently no-op for those tasks.
 
 5. **Report**: Output path to generated tasks.md and summary:
    - Total task count

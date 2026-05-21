@@ -8,6 +8,9 @@ args:
   - name: --all
     description: Process every pending verification in the queue.
     required: false
+  - name: --drain
+    description: Alias for --all. Drains every pending marker (used by /ss:implement at chunk end).
+    required: false
   - name: --feature
     description: Override auto-detected feature number (e.g., --feature 002).
     required: false
@@ -43,7 +46,7 @@ QUEUE_MODE=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --all)     PROCESS_ALL=true;     shift ;;
+    --all|--drain) PROCESS_ALL=true; shift ;;
     --queue)   QUEUE_MODE=true;      shift ;;
     --feature) FEATURE_OVERRIDE="$2"; shift 2 ;;
     -h|--help)
@@ -54,12 +57,14 @@ Adversarial spec-vs-implementation verification for completed task(s).
 
 Options:
   --all              Process every pending task in the queue
+  --drain            Alias for --all (drains the whole queue)
   --feature NUM      Override auto-detected feature number
   --queue            Show queue status (pending / verified / flagged counts)
 
 Examples:
   /ss:verify T011
   /ss:verify --all
+  /ss:verify --drain
   /ss:verify --queue
 EOF
       exit 0

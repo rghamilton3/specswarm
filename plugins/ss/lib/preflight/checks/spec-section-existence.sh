@@ -50,8 +50,13 @@ fi
 REFS=$(grep -oE '§[0-9]+(\.[0-9]+)*' "$PLAN_PATH" 2>/dev/null | sort -u || true)
 
 if [ -z "$REFS" ]; then
-  echo "PASS spec-section-existence: no § section references in plan.md"
-  exit 0
+  # WARN-on-zero (v7.11.0): a spec corpus IS declared, yet plan.md cites zero
+  # §X.Y sections. May be legitimate, or the plan references sections in a
+  # style the extractor misses ("section 3.4" without §) — in which case a
+  # broken cross-reference slips past a 0/0 PASS. See feedback
+  # `pass_on_zero_is_a_smell`.
+  echo "WARN spec-section-existence: 0 §X.Y references found in plan.md (${#CORPUS_FILES[@]} corpus file(s) declared) — is this expected?"
+  exit 1
 fi
 
 # Pre-build a unified heading index from all corpus files.

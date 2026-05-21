@@ -38,19 +38,29 @@ fi
 
 ## Checks Performed
 
-| Check | What it catches | Skip condition |
+| Check | What it catches | Skip condition (clean PASS) |
 |---|---|---|
 | **version-currency** | Hallucinated, typo'd, or yanked package versions | No package manager / lockfile detected |
 | **memory-coverage** | References to missing memory files; orphan files not in MEMORY.md | No memory dirs declared in references.md |
 | **spec-section-existence** | `§X.Y` refs that don't resolve to any spec corpus heading | No spec corpus declared in references.md |
-| **grep-word-boundary** | Short literal grep patterns prone to false positives | No grep/rg invocations in plan.md |
-| **heading-fidelity** | Quoted headings whose text doesn't match the source | No quoted `§X.Y "..."` patterns |
+| **grep-word-boundary** | Short literal grep patterns prone to false positives | (none — always applicable) |
+| **heading-fidelity** | Quoted headings whose text doesn't match the source | No spec corpus declared in references.md |
 
 Each check independently emits `PASS`, `WARN`, or `FAIL`. The overall exit code is the worst result:
 
-- **0** — all PASS (or some SKIP)
+- **0** — all PASS (or a check skipped because its subsystem isn't configured)
 - **1** — at least one WARN, no FAIL
 - **2** — at least one FAIL (`/ss:implement` should not run until resolved)
+
+**WARN-on-zero (v7.11.0):** A check whose subsystem *is* configured but which then
+extracts **zero items** from `plan.md` (0 version pins, 0 memory refs, 0 `§` refs,
+0 grep invocations, 0 quoted headings) now emits a **WARN** rather than a silent PASS.
+A green check should mean "I verified N>0 items," not "I found nothing to check." A
+0/0 PASS previously masked real silent failures — e.g. memory citations written in a
+`` `backtick` `` style the extractor didn't recognise. WARN is non-blocking; it asks
+"is this expected?" instead of gating `/ss:implement`. The pure not-configured case
+(no package manager, no declared corpus/memory dirs) stays a clean PASS-skip, so
+docs-only or unconfigured projects aren't spammed.
 
 ## How Project-Agnostic Discovery Works
 

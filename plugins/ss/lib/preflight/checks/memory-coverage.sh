@@ -36,11 +36,36 @@ if [ "${#MEMORY_DIRS[@]}" -eq 0 ]; then
   exit 0
 fi
 
-# Pass 1: Extract memory file paths explicitly referenced from plan.md
-# Patterns: "memory/foo.md", "memory/feedback_x.md", [[name]] wiki links to memory files,
-# bare references to "feedback_*.md" / "project_*.md" / "reference_*.md" / "user_*.md".
-REFERENCED=$(grep -oE '(memory\/)?(feedback|project|reference|user)_[a-zA-Z0-9_-]+\.md' "$PLAN_PATH" 2>/dev/null \
+# Pass 1: Extract memory file paths explicitly referenced from plan.md.
+#
+# SpecSwarm's universal memory taxonomy (see lib/references-loader.sh
+# ss_memory_scan_files) is the five prefixes feedback_/project_/reference_/
+# user_/intervention_. These are SpecSwarm-documented conventions, NOT
+# project-specific, so the extractor is safe to key off them for ANY project.
+#
+# Three citation styles are recognised — a plan may use any mix:
+#   1. path/extension form:  memory/feedback_x.md  OR  feedback_x.md
+#   2. backtick bare-name:   `feedback_x`          (no .md, no path)
+#   3. [[wiki-link]]:        [[feedback-x]] / [[feedback_x]]
+#
+# Style 2 (backtick) was the silent blind spot fixed in v7.11.0: plans that
+# cite memory inline as `feedback_version_currency` extracted ZERO refs under
+# the old .md-only matcher, yielding a misleading 0/0 PASS.
+MEM_PREFIX='(feedback|project|reference|user|intervention)'
+
+# Style 1: explicit .md (optionally memory/-prefixed)
+REFERENCED_MD=$(grep -oE "(memory\/)?${MEM_PREFIX}_[a-zA-Z0-9_-]+\.md" "$PLAN_PATH" 2>/dev/null \
   | sed 's|^memory/||' \
+  | sort -u || true)
+
+# Style 2: backtick-wrapped bare slug (no extension) — append .md for matching
+REFERENCED_BACKTICK=$(grep -oE "\`${MEM_PREFIX}_[a-zA-Z0-9_-]+\`" "$PLAN_PATH" 2>/dev/null \
+  | tr -d '`' \
+  | sed 's|$|.md|' \
+  | sort -u || true)
+
+REFERENCED=$(printf '%s\n%s\n' "$REFERENCED_MD" "$REFERENCED_BACKTICK" \
+  | grep -v '^$' \
   | sort -u || true)
 
 # Also extract [[wiki-link]] references that look like memory slugs
@@ -98,7 +123,7 @@ for dir in "${MEMORY_DIRS[@]}"; do
     [ "$base" = "MEMORY.md" ] && continue
     # Only check files matching memory naming convention
     case "$base" in
-      feedback_*|project_*|reference_*|user_*) ;;
+      feedback_*|project_*|reference_*|user_*|intervention_*) ;;
       *) continue ;;
     esac
     if ! grep -qF "$base" "$INDEX" 2>/dev/null; then
@@ -109,7 +134,8 @@ done
 
 rm -f "$EXISTING_FILES"
 
-TOTAL_REFS=$(echo "$REFERENCED" | grep -c . || echo 0)
+TOTAL_REFS=$(printf '%s\n' "$REFERENCED" | grep -c . || true)
+TOTAL_REFS=${TOTAL_REFS:-0}
 MISSING_COUNT=$(( ${#MISSING[@]} + ${#WIKI_MISSING[@]} ))
 ORPHAN_COUNT=${#ORPHANS[@]}
 
@@ -132,6 +158,16 @@ if [ "$ORPHAN_COUNT" -gt 0 ]; then
   for entry in "${ORPHANS[@]}"; do
     echo "  ⚠️  ${entry} — exists on disk but not indexed in MEMORY.md"
   done
+  exit 1
+fi
+
+# WARN-on-zero (v7.11.0): memory dirs ARE declared, yet plan.md cites zero
+# memory files in any recognised style. Either the plan genuinely references
+# none (unusual for a SpecSwarm project that uses the references system), or
+# the extractor missed a citation style. A 0/0 PASS hides the second case —
+# surface it as a soft WARN instead. See feedback `pass_on_zero_is_a_smell`.
+if [ "$TOTAL_REFS" -eq 0 ]; then
+  echo "WARN memory-coverage: 0 memory references found in plan.md (${#MEMORY_DIRS[@]} memory dir(s) declared) — is this expected? Extractor may not match this plan's citation style."
   exit 1
 fi
 

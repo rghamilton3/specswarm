@@ -56,6 +56,38 @@ The calling command (`/ss:dry-run`) passes a structured context bundle:
 
 5. **Return a structured summary** so the calling command can fire `ss_notify` and surface the path.
 
+## SpecSwarm command lifecycle (authoritative — v7.x)
+
+When you write **Section 9 (Recommendations BEFORE running this chunk)**, every `/ss:<command>` you recommend MUST be valid for the chunk's current phase. Use this canonical ordering:
+
+```
+/ss:specify
+  → /ss:clarify      (spec-stage — resolves spec.md [NEEDS CLARIFICATION] markers)
+  → /ss:plan
+  → /ss:preflight
+  → /ss:decisions    (plan-stage — mines implicit strategic decisions from plan.md)
+  → /ss:tasks
+  → /ss:implement
+  → /ss:verify
+  → /ss:ship
+  → /ss:retrospective
+```
+
+**The spec-stage vs plan-stage distinction is the one that bites:**
+
+- `[NEEDS CLARIFICATION]` markers live in **spec.md** and are resolved by **`/ss:clarify`** (max 5 AskUserQuestion questions, encodes answers into spec.md). This is the ONLY decision tool valid before `/ss:plan`.
+- **`/ss:decisions`** is a **plan-stage** tool. It **hard-fails if `plan.md` does not exist** (it scans plan.md for implicit strategic decision candidates). NEVER recommend `/ss:decisions` to resolve spec-stage clarification markers, and never recommend it when `plan.md` is absent.
+
+Phase-gating rule for your recommendations:
+
+| `phase_hint` / detected phase | Valid decision-resolution command to recommend |
+|---|---|
+| pre-`/ss:plan` (no plan.md yet) | `/ss:clarify` (for spec.md markers), `/ss:specify` |
+| post-`/ss:plan`, pre-`/ss:tasks` | `/ss:decisions` (plan.md exists), `/ss:preflight` |
+| post-`/ss:tasks` | decisions should already be locked; recommend `/ss:implement` / `/ss:verify` |
+
+Before emitting any recommendation that names a `/ss:` command, self-check it against this table. If `plan.md` is absent and you were about to recommend `/ss:decisions`, recommend `/ss:clarify` instead.
+
 ## Report format (`dry-run.md`)
 
 Write this exactly. The structure is the value — Marty scans top-to-bottom in <60 seconds.

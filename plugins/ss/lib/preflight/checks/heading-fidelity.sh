@@ -66,8 +66,11 @@ CANDIDATES=$(awk '
 ' "$PLAN_PATH" 2>/dev/null | sort -u || true)
 
 if [ -z "$CANDIDATES" ]; then
-  echo "PASS heading-fidelity: no quoted §X.Y \"Heading\" patterns in plan.md"
-  exit 0
+  # WARN-on-zero (v7.11.0): a spec corpus IS declared, but plan.md quotes zero
+  # §X.Y "Heading" pairs. Often legitimate, surfaced softly for gate-wide
+  # consistency. See feedback `pass_on_zero_is_a_smell`.
+  echo "WARN heading-fidelity: 0 quoted §X.Y \"Heading\" patterns in plan.md (${#CORPUS_FILES[@]} corpus file(s) declared) — is this expected?"
+  exit 1
 fi
 
 # Build a combined heading-text index from all corpus files

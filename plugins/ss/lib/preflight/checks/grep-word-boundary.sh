@@ -25,8 +25,11 @@ GREP_LINES=$(grep -nE '(^|[[:space:]`])(grep|rg|egrep|fgrep)([[:space:]]|$)' "$P
   | grep -vE '^[0-9]+:#+\s' || true)
 
 if [ -z "$GREP_LINES" ]; then
-  echo "PASS grep-word-boundary: no grep/rg invocations found in plan.md"
-  exit 0
+  # WARN-on-zero (v7.11.0): zero grep/rg invocations to inspect. Usually
+  # benign, but surfaced as a soft WARN for consistency with the gate-wide
+  # "PASS means I checked N>0 items" rule. See feedback `pass_on_zero_is_a_smell`.
+  echo "WARN grep-word-boundary: 0 grep/rg invocations found in plan.md — is this expected? (nothing to inspect for false-positive patterns)"
+  exit 1
 fi
 
 FLAGGED=()

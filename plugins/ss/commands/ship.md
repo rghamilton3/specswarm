@@ -165,6 +165,64 @@ Generate security audit report: `security-audit-YYYY-MM-DD.md`
 
 ---
 
+### Step 1.7: Verify-Queue Precondition Check (v7.11.0)
+
+**Purpose**: Catch the silent-failure case where a chunk shipped without per-task adversarial verification ever running. This is the end-of-chunk catch-net for the verify-queue (complements the `/ss:implement` drain step). Project-agnostic — reads only `.specswarm/verify-queue/` and the feature's `tasks.md`.
+
+```bash
+PLUGIN_DIR="$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")"
+# shellcheck disable=SC1091
+source "${PLUGIN_DIR}/lib/verify/queue.sh"
+
+PENDING=$(ss_verify_queue_count pending)
+VERIFIED=$(ss_verify_queue_count verified)
+FLAGGED=$(ss_verify_queue_count flagged)
+
+# Count completed task checkboxes across the current feature's tasks.md.
+# Canonical format: "- [X] T### …" (see /ss:tasks Canonical Task Line Format).
+COMPLETED_TASKS=0
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+FEATURE_NUM=$(echo "$CURRENT_BRANCH" | grep -oE '^[0-9]{3}' || true)
+if [ -n "$FEATURE_NUM" ]; then
+  # shellcheck disable=SC1091
+  source "${PLUGIN_DIR}/lib/features-location.sh" 2>/dev/null || true
+  if declare -f find_feature_dir >/dev/null 2>&1 && find_feature_dir "$FEATURE_NUM" "$REPO_ROOT" 2>/dev/null; then
+    TASKS_MD="${FEATURE_DIR}/tasks.md"
+    if [ -f "$TASKS_MD" ]; then
+      COMPLETED_TASKS=$(grep -cE '^[[:space:]]*-[[:space:]]+\[[xX]\][[:space:]]+T[0-9]+' "$TASKS_MD" 2>/dev/null || echo 0)
+    fi
+  fi
+fi
+
+echo "🔍 Verify-queue: pending=${PENDING}, verified=${VERIFIED}, flagged=${FLAGGED}; completed tasks=${COMPLETED_TASKS}"
+
+# FLAGGED markers must be reviewed before shipping.
+if [ "$FLAGGED" -gt 0 ]; then
+  echo "⚠️  ${FLAGGED} task(s) FLAGGED by spec-mentor (DRIFT / NEEDS-MARTY) — review before merge:"
+  find "$(ss_verify_queue_dir)" -maxdepth 1 -type f -name '*.flagged' 2>/dev/null \
+    | while IFS= read -r f; do echo "    • $(basename "$f" .flagged)"; done
+  echo "    Run /ss:verify --queue for details. Resolve or explicitly accept before /ss:ship."
+fi
+
+# PENDING markers were never drained — drain them first.
+if [ "$PENDING" -gt 0 ]; then
+  echo "⚠️  ${PENDING} verification marker(s) still PENDING — auto-verification did not finish."
+  echo "    Recommended: run /ss:verify --drain before shipping."
+fi
+
+# WARN-on-zero: tasks were completed but the queue is empty → auto-verification never ran.
+if [ "$COMPLETED_TASKS" -gt 0 ] && [ "$PENDING" -eq 0 ] && [ "$VERIFIED" -eq 0 ] && [ "$FLAGGED" -eq 0 ]; then
+  echo "⚠️  ${COMPLETED_TASKS} completed task(s) but verify-queue is EMPTY — per-task adversarial"
+  echo "    verification never ran. Likely tasks.md was not in canonical '- [ ] T###' checkbox"
+  echo "    format, or the tasks-completion-detector hook was inactive. This chunk is shipping"
+  echo "    under local-gates-only verification. Confirm a whole-chunk spec-mentor review was done."
+fi
+```
+
+This step is **non-blocking by default** (it WARNs, it does not `exit`). The flagged/pending findings are surfaced so the user makes an informed merge decision. Quality-threshold blocking remains the job of Step 3.
+
+---
+
 ### Step 2: Run Quality Analysis
 
 **MCP Enhancement (automatic — no action needed):**

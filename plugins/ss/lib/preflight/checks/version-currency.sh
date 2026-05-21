@@ -80,8 +80,13 @@ extract_pins() {
 PINS=$(extract_pins "$PLAN_PATH" | awk -F'\t' 'NF==2 && $1!="" && $2!=""' | sort -u || true)
 
 if [ -z "$PINS" ]; then
-  echo "PASS version-currency: no version pins detected in plan.md"
-  exit 0
+  # WARN-on-zero (v7.11.0): a package manager IS present, yet zero version
+  # pins were extracted. The plan may legitimately pin nothing, OR it pins
+  # versions in a prose style the extractor doesn't recognise — in which
+  # case a hallucinated/yanked version would slip past a 0/0 PASS. Surface
+  # it softly. See feedback `pass_on_zero_is_a_smell`.
+  echo "WARN version-currency: 0 version pins extracted (${REGISTRY} project) — is this expected? Extractor may not match this plan's pin style."
+  exit 1
 fi
 
 TOTAL=0

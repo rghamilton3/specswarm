@@ -75,6 +75,35 @@ You **MUST** consider the user input before proceeding (if not empty).
       ✓ Directory: {FEATURE_DIR}
       ```
 
+   g. **Auto-verification readiness check (v7.11.0)** — WARN, never HALT:
+
+      The per-task verify-queue depends on (1) the `tasks-completion-detector` hook being wired into the plugin and (2) `tasks.md` using the canonical `- [ ] T###` checkbox format. Confirm both so you know the verification posture BEFORE running tasks. Run with Bash:
+      ```bash
+      PLUGIN_DIR_CHK="$(dirname "$SCRIPT_DIR")"
+      HOOK_OK=false
+      if grep -q "tasks-completion-detector" "${PLUGIN_DIR_CHK}/hooks/hooks.json" 2>/dev/null \
+         && [ -f "${PLUGIN_DIR_CHK}/hooks/tasks-completion-detector.sh" ]; then
+        HOOK_OK=true
+      fi
+
+      CANON_OK=false
+      if [ -f "${FEATURE_DIR}/tasks.md" ] \
+         && grep -qE '^[[:space:]]*-[[:space:]]+\[[ xX]\][[:space:]]+T[0-9]+' "${FEATURE_DIR}/tasks.md" 2>/dev/null; then
+        CANON_OK=true
+      fi
+
+      if [ "$HOOK_OK" = true ] && [ "$CANON_OK" = true ]; then
+        echo "✓ Auto-verification active: hook wired + tasks.md in canonical checkbox format."
+      else
+        echo "⚠️  Verify-queue auto-verification may be INACTIVE:"
+        [ "$HOOK_OK" = false ] && echo "    • tasks-completion-detector hook not found in this plugin build."
+        [ "$CANON_OK" = false ] && echo "    • tasks.md has no canonical '- [ ] T###' checkboxes (heading-only or empty)."
+        echo "    Falling back to local-gates + whole-chunk spec-mentor dispatch at chunk end (Step 9b)."
+        echo "    To re-enable per-task auto-verify, regenerate tasks.md via /ss:tasks (emits canonical checkboxes)."
+      fi
+      ```
+      Do NOT halt — autonomous mode must still run. This check only makes the verification posture explicit so a silent gap is never mistaken for a clean pass.
+
 2. **Check checklists status** (if FEATURE_DIR/checklists/ exists):
    - Scan all checklist files in the checklists/ directory
    - For each checklist, count:
@@ -418,6 +447,54 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Validate that tests pass and coverage meets requirements
    - Confirm the implementation follows the technical plan
    - Report final status with summary of completed work
+
+<!-- ========== VERIFY-QUEUE DRAIN (SpecSwarm v7.11.0) ========== -->
+<!-- Added by Marty Bonacci & Claude Code (2026) — closes the half of the -->
+<!-- per-task verify loop that previously never ran: markers got created by  -->
+<!-- the tasks-completion-detector hook but were never DISPATCHED, so they    -->
+<!-- sat as .pending after the chunk shipped (intervention                    -->
+<!-- verify-queue-task-format-mismatch, the still-broken half).               -->
+
+9b. **Drain the verification queue** (adversarial spec-mentor pass — runs after all tasks complete, before quality validation):
+
+   **Purpose**: As each task's checkbox flipped to `[X]`, the `tasks-completion-detector` PostToolUse hook queued a `.pending` marker under `.specswarm/verify-queue/`. Those markers must be DRAINED — each one dispatches a fresh `spec-mentor` subagent that compares the spec against the implementation and returns PASS / DRIFT / NEEDS-MARTY. Without this step the markers accumulate unprocessed and the chunk ships on local-gates-only verification.
+
+   **YOU MUST NOW drain the queue using the Bash + Task tools:**
+
+   1. **Count pending markers** using Bash:
+      ```bash
+      PLUGIN_DIR="$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")"
+      source "${PLUGIN_DIR}/lib/verify/queue.sh"
+      PENDING=$(ss_verify_queue_count pending)
+      echo "🔍 Verify-queue: ${PENDING} pending marker(s) to drain."
+      ```
+
+   2. **If `PENDING` is 0:**
+      - This is a **WARN-on-zero signal**, not a clean pass. Either every checkbox was already verified, OR the auto-detect hook never fired (e.g. tasks.md was not in canonical `- [ ] T###` checkbox format, or the hook isn't registered).
+      - Cross-check: count completed task checkboxes in `tasks.md`. If completed-tasks > 0 but the queue is empty, display:
+        ```
+        ⚠️  Verify-queue is empty but N task(s) were completed.
+            Auto-verification did NOT run for this chunk. Likely causes:
+              • tasks.md not in canonical "- [ ] T###" checkbox format, or
+              • tasks-completion-detector hook not active this session.
+            This chunk relies on local-gates-only verification.
+            Consider a manual whole-chunk spec-mentor review before /ss:ship.
+        ```
+      - Then proceed to Step 10.
+
+   3. **If `PENDING` > 0:** run the drain by following `/ss:verify --drain` (equivalent to `/ss:verify --all`):
+      - For EACH pending task, gather its context (queue entry + task block + git diff) and dispatch ONE `spec-mentor` subagent via the Task tool, exactly as documented in `commands/verify.md` Phases 2-3.
+      - Parse each verdict and resolve the marker with `ss_verify_queue_resolve <tid> <VERDICT> "<summary>"`.
+      - On any DRIFT / NEEDS-MARTY verdict, fire `ss_notify urgent "SpecSwarm <tid> flagged" "<summary>"` and surface it to the user.
+      - In autonomous mode, do NOT halt on a single DRIFT — collect all verdicts and present a consolidated flagged-tasks list. The user reviews flagged tasks before `/ss:ship`.
+
+   4. **Report drain result:**
+      ```
+      🔍 Verification queue drained: {VERIFIED} verified, {FLAGGED} flagged.
+      ```
+      Flagged tasks must be reviewed before `/ss:ship` (which re-checks the queue — see ship precondition).
+
+<!-- ========== END VERIFY-QUEUE DRAIN ========== -->
 
 <!-- ========== QUALITY VALIDATION (SpecSwarm Phase 1) ========== -->
 <!-- Added by Marty Bonacci & Claude Code (2025) -->

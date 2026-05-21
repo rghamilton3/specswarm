@@ -5,6 +5,48 @@ All notable changes to SpecSwarm and SpecSwarm plugins will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.11.0] - 2026-05-20 - Verification-Loop Hardening (Phase 1 intervention harvest)
+
+Landed from six interventions captured during a real production project's Phase 1 (4 chunks shipped via the `/ss:*` workflow). Each fix targets the **general plugin failure class**, not the project-specific symptom — every change was tested against synthetic, non-customcult fixtures (Go / Python / Rust stacks) in `plugins/ss/test-fixtures/v7.11-agnosticism.sh` (15 assertions, all green).
+
+### Added
+
+- **WARN-on-zero across all preflight gates** (`lib/preflight/checks/*.sh`). A check whose subsystem *is* configured but which then extracts **zero items** from `plan.md` now emits `WARN`, not a silent `PASS`. A green check now means "I verified N>0 items," not "I found nothing to check."
+  - *Source:* `feedback_pass_on_zero_is_a_smell` + interventions #3/#4/#5.
+  - *Generalized from customcult-v3 instance to:* any project's preflight gate — for a Python, Go, Rust, or TS project alike, an empty-but-applicable scan surfaces as a non-blocking WARN. The pure not-configured case (no package manager, no declared corpus/memory dirs) stays a clean PASS-skip so docs-only repos aren't spammed.
+
+- **Backtick memory-reference extractor** (`lib/preflight/checks/memory-coverage.sh`). The extractor now recognises `` `feedback_x` `` / `` `project_x` `` / `` `reference_x` `` / `` `user_x` `` / `` `intervention_x` `` backtick-wrapped bare names, in addition to `[[name]]` wiki-links and `memory/name.md` paths. A backtick citation to a *non-existent* memory file now correctly FAILs instead of trivially passing 0/0.
+  - *Source:* intervention #3 (`preflight-memory-coverage-misses-backtick-refs`).
+  - *Generalized from customcult-v3 instance to:* the five prefixes are SpecSwarm's documented universal memory taxonomy (see `lib/references-loader.sh`), so the extractor works for any SpecSwarm-valid memory layout regardless of directory name or stack.
+
+- **`/ss:verify --drain`** alias (`commands/verify.md`) and an explicit **verify-queue drain step** in `/ss:implement` (Step 9b). Markers created by the completion-detector hook are now actually dispatched to `spec-mentor` at chunk end — closing the half of the loop that previously left markers as `.pending` after the chunk shipped.
+  - *Source:* intervention #5 (`verify-queue-task-format-mismatch`), still-broken half.
+  - *Generalized from customcult-v3 instance to:* any project's `.specswarm/verify-queue/` — the drain uses path-agnostic queue helpers keyed off the git root.
+
+- **`/ss:implement` auto-verification readiness check** (Step 1g) — WARN-not-HALT if the completion-detector hook isn't wired or `tasks.md` lacks canonical checkboxes, so the verification posture is explicit before tasks run.
+  - *Source:* intervention #4 mitigation #1.
+
+- **`/ss:ship` verify-queue precondition** (Step 1.7) — surfaces FLAGGED markers, undrained PENDING markers, and the "completed tasks but empty queue" silent-failure case before merge. Non-blocking WARNs.
+  - *Source:* intervention #4 mitigation #2.
+
+- **`quality-standards.md` as a decision-miner input** (`commands/decisions.md` + `agents/decision-miner.md`). Locked prior commitments (coverage floors, budgets, security/a11y baselines) are now an explicit "honor, never override" source, so the miner won't surface options that relax an already-locked commitment.
+  - *Source:* project observation (a locked quality commitment got an override-style recommendation).
+  - *Generalized from customcult-v3 instance to:* `quality-standards.md` is a standard SpecSwarm foundation file referenced generically.
+
+### Changed
+
+- **`/ss:tasks` now emits the canonical `- [ ] T###` Markdown checkbox format by default** (`commands/tasks.md`). Earlier heading-only output (`### T001 …`) made the `tasks-completion-detector` hook find zero matches, silently disabling per-task verification for the whole chunk. A new "Canonical Task Line Format (REQUIRED)" section + a post-write format check enforce it.
+  - *Source:* intervention #5 + `feedback_dual_format_tasks_md`.
+  - *Generalized from customcult-v3 instance to:* the checkbox carries only task ID + tags + description + optional path — language- and stack-agnostic. Verified against a Go/Python/Rust task list.
+
+- **dry-run-simulator now knows the v7.x canonical lifecycle** (`agents/dry-run-simulator.md`). It will no longer recommend `/ss:decisions` (plan-stage, hard-fails without `plan.md`) to resolve spec-stage `[NEEDS CLARIFICATION]` markers — that's `/ss:clarify`. Adds a phase-gating self-check table for recommended commands.
+  - *Source:* intervention #2 (`dry-run-simulator-confused-clarify-with-decisions`).
+
+### Notes
+
+- Interventions #1 (postgres-js name drift, already resolved upstream in v7.1.0) and #6 (vite-tsconfig-paths, a project-config issue) required no plugin action.
+- **Trade-off:** WARN-on-zero means a normal plan with no version pins / no quoted headings will now show 1-2 non-blocking WARNs at preflight. This is intentional (silence ≠ verification). To dial it back, edit the relevant `lib/preflight/checks/*.sh` empty-case branch.
+
 ## [7.10.0] - 2026-05-20 - /ss:overnight — Run a Chunk While You Sleep (W2)
 
 **Marty's most ambitious automation.** Pre-batch decisions before bed, schedule this command via cron/systemd/launchd between 10pm-6am, wake to a green PR or a phone notification telling you exactly what needs attention. Combines pre-batched decisions (v7.6.0), the v7.4.0 verification queue, v7.2.0 notifications, and headless `claude --print` to run the full `/ss:preflight → /ss:implement → /ss:verify → /ss:retrospective` chain without user input.
