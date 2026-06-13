@@ -1,5 +1,5 @@
 ---
-description: Complete feature or bugfix workflow and merge to parent branch
+description: Complete feature or bugfix workflow and open a PR against the default branch (or --base <branch>)
 hidden: true
 effort: medium
 ---
@@ -14,13 +14,13 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Goal
 
-Complete feature or bugfix workflow by cleaning up, validating, committing, and merging to parent branch.
+Complete feature or bugfix workflow by cleaning up, validating, committing, pushing, and opening a pull request against the parent branch.
 
 **Purpose**: Provide a clean, guided completion process for features and bugfixes developed with SpecSwarm workflows.
 
-**Scope**: Handles cleanup → validation → commit → merge → branch deletion
+**Scope**: Handles cleanup → validation → commit → push → PR creation
 
-**NEW**: Supports individual feature branches with auto-merge to parent branch (not just main)
+**Target branch**: Defaults to the detected parent branch (from spec.md or repo default). Pass `--base <branch>` to override.
 
 ---
 
@@ -60,10 +60,13 @@ FEATURE_NUM=$(echo "$CURRENT_BRANCH" | grep -oE '^[0-9]{3}' || \
               echo "$CURRENT_BRANCH" | grep -oE '(feature|bugfix|fix)/([0-9]{3})' | grep -oE '[0-9]{3}' || \
               echo "")
 
+# Extract optional --base branch override from arguments
+BASE_BRANCH_OVERRIDE=$(echo "$ARGUMENTS" | grep -oP '(?<=--base\s)\S+' || echo "")
+
 # If no number found, check user arguments
 if [ -z "$FEATURE_NUM" ] && [ -n "$ARGUMENTS" ]; then
-  # Try to extract number from arguments
-  FEATURE_NUM=$(echo "$ARGUMENTS" | grep -oE '\b[0-9]{3}\b' | head -1)
+  # Try to extract number from arguments (skip --base and its value)
+  FEATURE_NUM=$(echo "$ARGUMENTS" | sed 's/--base\s\+\S\+//' | grep -oE '\b[0-9]{3}\b' | head -1)
 fi
 
 # If still no number, ask user
@@ -155,62 +158,65 @@ if [ -z "$MAIN_BRANCH" ]; then
   elif git show-ref --verify --quiet refs/heads/master; then
     MAIN_BRANCH="master"
   else
-    # Use current branch as fallback
     MAIN_BRANCH=$(git rev-parse --abbrev-ref HEAD)
     echo "⚠️  Warning: Could not detect main branch, using current branch: $MAIN_BRANCH"
   fi
 fi
 
-# Detect if we're in a sequential upgrade branch workflow
-SEQUENTIAL_BRANCH=false
-PARENT_BRANCH="$MAIN_BRANCH"
+# Apply explicit --base override first (highest priority)
+if [ -n "$BASE_BRANCH_OVERRIDE" ]; then
+  PARENT_BRANCH="$BASE_BRANCH_OVERRIDE"
+  echo "✓ Using --base override: $PARENT_BRANCH"
+  echo ""
+  SEQUENTIAL_BRANCH=false
+else
+  # Detect if we're in a sequential upgrade branch workflow
+  SEQUENTIAL_BRANCH=false
+  PARENT_BRANCH="$MAIN_BRANCH"
 
-if [ "$CURRENT_BRANCH" != "$MAIN_BRANCH" ]; then
-  # Check if current branch contains multiple feature directories
-  # Check both old (features/) and new (.specswarm/features/) locations
-  FEATURE_DIRS_ON_BRANCH=$(git log "$CURRENT_BRANCH" --not "$MAIN_BRANCH" --name-only --pretty=format: 2>/dev/null | \
-                            grep -E '^(features/|\.specswarm/features/)[0-9]\{3\}-' | sed 's#^\.specswarm/##' | cut -d'/' -f2 | sort -u | wc -l || echo "0")
+  if [ "$CURRENT_BRANCH" != "$MAIN_BRANCH" ]; then
+    FEATURE_DIRS_ON_BRANCH=$(git log "$CURRENT_BRANCH" --not "$MAIN_BRANCH" --name-only --pretty=format: 2>/dev/null | \
+                              grep -E '^(features/|\.specswarm/features/)[0-9]\{3\}-' | sed 's#^\.specswarm/##' | cut -d'/' -f2 | sort -u | wc -l || echo "0")
 
-  if [ "$FEATURE_DIRS_ON_BRANCH" -gt 1 ]; then
-    SEQUENTIAL_BRANCH=true
-    PARENT_BRANCH="$CURRENT_BRANCH"
-    echo "Detected: Sequential branch workflow"
-    echo "  This branch contains $FEATURE_DIRS_ON_BRANCH features"
-    echo "  Features will be marked complete without merging"
-    echo ""
-  fi
-fi
-
-# If not sequential, determine parent branch
-if [ "$SEQUENTIAL_BRANCH" = "false" ]; then
-  # Check for stored parent branch (v2.1.1+)
-  echo "Determining parent branch..."
-  echo "  Stored parent branch: ${STORED_PARENT_BRANCH:-<empty>}"
-
-  if [ -n "$STORED_PARENT_BRANCH" ] && [ "$STORED_PARENT_BRANCH" != "unknown" ]; then
-    PARENT_BRANCH="$STORED_PARENT_BRANCH"
-    echo "✓ Using parent branch from spec.md: $PARENT_BRANCH"
-    echo ""
-  else
-    echo "⚠️  No valid parent branch in spec.md, checking fallback options..."
-    # Fallback: Check if there's a previous feature branch this might merge into
-    PREV_FEATURE_NUM=$(printf "%03d" $((10#$FEATURE_NUM - 1)))
-    PREV_FEATURE_BRANCH=$(git branch -a 2>/dev/null | grep -E "^  (remotes/origin/)?${PREV_FEATURE_NUM}-" | head -1 | sed 's/^[* ]*//' | sed 's/remotes\/origin\///' || echo "")
-
-    if [ -n "$PREV_FEATURE_BRANCH" ] && git show-ref --verify --quiet "refs/heads/$PREV_FEATURE_BRANCH" 2>/dev/null; then
-      echo "Found previous feature branch: $PREV_FEATURE_BRANCH"
+    if [ "$FEATURE_DIRS_ON_BRANCH" -gt 1 ]; then
+      SEQUENTIAL_BRANCH=true
+      PARENT_BRANCH="$CURRENT_BRANCH"
+      echo "Detected: Sequential branch workflow"
+      echo "  This branch contains $FEATURE_DIRS_ON_BRANCH features"
+      echo "  Features will be marked complete without a PR"
       echo ""
-      read -p "Merge into $PREV_FEATURE_BRANCH instead of $MAIN_BRANCH? (y/n): " merge_into_prev
-      if [ "$merge_into_prev" = "y" ]; then
-        PARENT_BRANCH="$PREV_FEATURE_BRANCH"
-        echo "✓ Will merge to: $PARENT_BRANCH"
-      else
-        echo "✓ Will merge to: $MAIN_BRANCH"
-      fi
+    fi
+  fi
+
+  # If not sequential, determine parent branch from spec or fallback
+  if [ "$SEQUENTIAL_BRANCH" = "false" ]; then
+    echo "Determining PR target branch..."
+    echo "  Stored parent branch: ${STORED_PARENT_BRANCH:-<empty>}"
+
+    if [ -n "$STORED_PARENT_BRANCH" ] && [ "$STORED_PARENT_BRANCH" != "unknown" ]; then
+      PARENT_BRANCH="$STORED_PARENT_BRANCH"
+      echo "✓ Using parent branch from spec.md: $PARENT_BRANCH"
       echo ""
     else
-      echo "✓ Will merge to: $MAIN_BRANCH (default)"
-      echo ""
+      echo "⚠️  No valid parent branch in spec.md, checking fallback options..."
+      PREV_FEATURE_NUM=$(printf "%03d" $((10#$FEATURE_NUM - 1)))
+      PREV_FEATURE_BRANCH=$(git branch -a 2>/dev/null | grep -E "^  (remotes/origin/)?${PREV_FEATURE_NUM}-" | head -1 | sed 's/^[* ]*//' | sed 's/remotes\/origin\///' || echo "")
+
+      if [ -n "$PREV_FEATURE_BRANCH" ] && git show-ref --verify --quiet "refs/heads/$PREV_FEATURE_BRANCH" 2>/dev/null; then
+        echo "Found previous feature branch: $PREV_FEATURE_BRANCH"
+        echo ""
+        read -p "Target PR at $PREV_FEATURE_BRANCH instead of $MAIN_BRANCH? (y/n): " target_prev
+        if [ "$target_prev" = "y" ]; then
+          PARENT_BRANCH="$PREV_FEATURE_BRANCH"
+          echo "✓ PR will target: $PARENT_BRANCH"
+        else
+          echo "✓ PR will target: $MAIN_BRANCH"
+        fi
+        echo ""
+      else
+        echo "✓ PR will target: $MAIN_BRANCH (default)"
+        echo ""
+      fi
     fi
   fi
 fi
@@ -481,194 +487,178 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
   echo "$COMMIT_MSG" | git commit -F -
   echo "✓ Changes committed to feature branch"
   echo ""
-
-  # Push
-  read -p "Push to remote? (y/n): " push_choice
-  if [ "$push_choice" = "y" ]; then
-    git push
-    echo "✓ Pushed to remote"
-  else
-    echo "⚠️  Changes not pushed (you can push manually later)"
-  fi
-  echo ""
 fi
+
+# Always push feature branch to remote so a PR can be opened
+echo "Pushing branch to remote..."
+if git push -u origin "$CURRENT_BRANCH" 2>&1; then
+  echo "✓ Pushed $CURRENT_BRANCH to origin"
+else
+  echo "❌ Push failed — fix the issue above and re-run /ss:complete"
+  exit 1
+fi
+echo ""
 ```
 
 ---
 
-### Step 5: Merge to Parent Branch
+### Step 5: Open Pull Request
 
 ```bash
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Phase 4: Merge to Parent Branch"
+echo "Phase 4: Open Pull Request"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# Skip merge for sequential branches
+PR_URL=""
+
+# Skip PR for sequential branches — features are completed in-branch
 if [ "$SEQUENTIAL_BRANCH" = "true" ]; then
-  echo "✓ Sequential branch workflow - NO MERGE"
+  echo "✓ Sequential branch workflow — skipping PR"
   echo ""
   echo "This feature is part of a sequential upgrade branch."
-  echo "Features will be merged together after the entire sequence completes."
+  echo "All features will be submitted together via a single PR once the sequence completes."
   echo ""
 
-  # Create completion tag for tracking
   TAG_NAME="feature-${FEATURE_NUM}-complete"
   if ! git tag -l | grep -q "^${TAG_NAME}$"; then
     git tag "$TAG_NAME"
     echo "✓ Created completion tag: $TAG_NAME"
   fi
   echo ""
-  SKIP_MERGE=true
+  SKIP_PR=true
 elif [ "$CURRENT_BRANCH" = "$PARENT_BRANCH" ]; then
-  echo "✓ Already on $PARENT_BRANCH branch"
-  echo "✓ No merge needed"
+  echo "✓ Already on $PARENT_BRANCH — no PR needed"
   echo ""
-  SKIP_MERGE=true
+  SKIP_PR=true
 else
-  SKIP_MERGE=false
+  SKIP_PR=false
 
-  # Validation: Show merge details
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "Merge Plan"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "  Source branch: $CURRENT_BRANCH"
-  echo "  Target branch: $PARENT_BRANCH"
-  if [ -n "$STORED_PARENT_BRANCH" ]; then
-    echo "  Source: spec.md parent_branch field"
-  elif [ -n "$PREV_FEATURE_BRANCH" ]; then
-    echo "  Source: Previous feature branch detected"
+  # Build PR body from spec artifacts
+  PR_BODY="## Summary
+
+$([ -n "$FEATURE_TITLE" ] && echo "**$(echo "$WORKFLOW_TYPE" | sed 's/\b\(.\)/\u\1/') $FEATURE_NUM:** $FEATURE_TITLE" || echo "$(echo "$WORKFLOW_TYPE" | sed 's/\b\(.\)/\u\1/') $FEATURE_NUM")
+"
+
+  if [ -n "$FEATURE_DIR" ] && [ -f "$FEATURE_DIR/spec.md" ]; then
+    SPEC_SUMMARY=$(grep -A 5 '^## Summary' "$FEATURE_DIR/spec.md" 2>/dev/null | tail -n +2 | head -3 | sed '/^$/d' || echo "")
+    if [ -n "$SPEC_SUMMARY" ]; then
+      PR_BODY+="
+${SPEC_SUMMARY}
+"
+    fi
+  fi
+
+  if [ -n "$FEATURE_DIR" ] && [ -f "$FEATURE_DIR/bugfix.md" ]; then
+    BUG_NUMBERS=$(grep -oE 'Bug [0-9]{3}' "$FEATURE_DIR/bugfix.md" 2>/dev/null | sort -u || echo "")
+    if [ -n "$BUG_NUMBERS" ]; then
+      PR_BODY+="
+## Fixes
+"
+      while IFS= read -r bug; do
+        PR_BODY+="- $bug
+"
+      done <<< "$BUG_NUMBERS"
+    fi
+  fi
+
+  if [ -n "$FEATURE_DIR" ] && [ -f "$FEATURE_DIR/tasks.md" ]; then
+    TOTAL_TASKS=$(grep -cE '^### T[0-9]{3}:' "$FEATURE_DIR/tasks.md" 2>/dev/null || echo "0")
+    COMPLETED_TASKS=$(grep -cE '^### T[0-9]{3}:.*\[x\]' "$FEATURE_DIR/tasks.md" 2>/dev/null || echo "0")
+    if [ "$TOTAL_TASKS" -gt 0 ]; then
+      PR_BODY+="
+## Progress
+
+$COMPLETED_TASKS / $TOTAL_TASKS tasks completed
+"
+    fi
+  fi
+
+  PR_BODY+="
+---
+🤖 Generated with SpecSwarm"
+
+  PR_TITLE="$(echo "$WORKFLOW_TYPE" | sed 's/\b\(.\)/\u\1/'): ${FEATURE_TITLE:-Feature $FEATURE_NUM}"
+
+  echo "PR Plan"
+  echo "  Head branch : $CURRENT_BRANCH"
+  echo "  Base branch : $PARENT_BRANCH"
+  echo "  Title       : $PR_TITLE"
+  if [ -n "$BASE_BRANCH_OVERRIDE" ]; then
+    echo "  Base source : --base override"
+  elif [ -n "$STORED_PARENT_BRANCH" ]; then
+    echo "  Base source : spec.md parent_branch"
   else
-    echo "  Source: Default main branch"
+    echo "  Base source : default branch"
   fi
-  echo ""
-
   if [ "$PARENT_BRANCH" != "$MAIN_BRANCH" ]; then
-    echo "ℹ️  Note: Merging into '$PARENT_BRANCH' (not $MAIN_BRANCH)"
-    echo "   This is an intermediate merge in a feature branch hierarchy."
+    echo ""
+    echo "ℹ️  Note: PR targets '$PARENT_BRANCH' (not $MAIN_BRANCH)"
+    echo "   This is an intermediate PR in a feature branch hierarchy."
   fi
   echo ""
-  echo "⚠️  IMPORTANT: This will merge your changes to $PARENT_BRANCH."
-  echo "    Make sure you've tested the feature thoroughly."
-  echo "    If the target branch looks wrong, press 'n' and check spec.md"
-  echo ""
-  read -p "Proceed with merge? (y/n): " merge_choice
 
-  if [ "$merge_choice" != "y" ]; then
+  read -p "Open PR? (y/n): " pr_choice
+
+  if [ "$pr_choice" != "y" ]; then
     echo ""
-    echo "❌ Merge cancelled"
+    echo "❌ PR creation cancelled"
     echo ""
-    echo "You're still on branch: $CURRENT_BRANCH"
+    echo "You're still on branch: $CURRENT_BRANCH (already pushed)"
     echo ""
-    echo "When ready to merge, run:"
-    echo "  /ss:complete"
+    echo "When ready, open the PR manually:"
+    echo "  gh pr create --base $PARENT_BRANCH --head $CURRENT_BRANCH"
     echo ""
-    echo "Or merge manually:"
-    echo "  git checkout $PARENT_BRANCH"
-    echo "  git merge --no-ff $CURRENT_BRANCH"
+    echo "Or re-run: /ss:complete"
     exit 0
   fi
 
   echo ""
-  echo "Checking out $PARENT_BRANCH..."
-  git checkout "$PARENT_BRANCH"
+  echo "Creating PR..."
+  PR_URL=$(gh pr create \
+    --base "$PARENT_BRANCH" \
+    --head "$CURRENT_BRANCH" \
+    --title "$PR_TITLE" \
+    --body "$PR_BODY" 2>&1)
 
-  echo "Pulling latest changes..."
-  git pull
-  echo "✓ $PARENT_BRANCH branch up to date"
-  echo ""
-
-  echo "Merging feature branch (no-ff)..."
-  MERGE_MSG="Merge ${WORKFLOW_TYPE}: ${FEATURE_TITLE}
-
-Feature $FEATURE_NUM complete
-
-🤖 Generated with SpecSwarm"
-
-  if git merge --no-ff "$CURRENT_BRANCH" -m "$MERGE_MSG"; then
-    echo "✓ Merge successful"
-
-    # Create completion tag
-    TAG_NAME="feature-${FEATURE_NUM}-complete"
-    if ! git tag -l | grep -q "^${TAG_NAME}$"; then
-      git tag "$TAG_NAME"
-      echo "✓ Created completion tag: $TAG_NAME"
-    fi
+  if echo "$PR_URL" | grep -qE '^https?://'; then
+    echo "✓ Pull request opened: $PR_URL"
   else
-    echo "❌ Merge conflicts detected"
+    echo "❌ gh pr create failed:"
+    echo "$PR_URL"
     echo ""
-    echo "Please resolve conflicts manually:"
-    echo "  1. Fix conflicts in your editor"
-    echo "  2. git add <resolved-files>"
-    echo "  3. git merge --continue"
-    echo "  4. /ss:complete --continue"
-    echo ""
+    echo "Ensure 'gh' is installed and authenticated, then open the PR manually:"
+    echo "  gh pr create --base $PARENT_BRANCH --head $CURRENT_BRANCH"
     exit 1
   fi
 
-  echo ""
-  read -p "Push to remote? (y/n): " push_main_choice
-  if [ "$push_main_choice" = "y" ]; then
-    echo "Pushing to remote..."
-    git push --follow-tags
-    echo "✓ $PARENT_BRANCH branch updated"
-  else
-    echo "⚠️  Not pushed (you can push manually later)"
-  fi
   echo ""
 fi
 ```
 
 ---
 
-### Step 6: Branch Cleanup
+### Step 6: Finalize
 
 ```bash
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Phase 5: Cleanup"
+echo "Phase 5: Finalize"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-if [ "$SKIP_MERGE" = "true" ] && [ "$SEQUENTIAL_BRANCH" = "false" ]; then
-  echo "✓ No branch cleanup needed (already on $PARENT_BRANCH)"
-elif [ "$SEQUENTIAL_BRANCH" = "true" ]; then
-  echo "✓ Sequential branch - keeping feature branch for remaining features"
-else
-  read -p "Delete feature branch '$CURRENT_BRANCH'? (y/n): " delete_choice
-
-  if [ "$delete_choice" = "y" ]; then
-    # Delete local branch
-    if git branch -d "$CURRENT_BRANCH" 2>/dev/null; then
-      echo "✓ Deleted local branch: $CURRENT_BRANCH"
-    else
-      echo "⚠️  Could not delete local branch (may have unmerged commits)"
-      read -p "Force delete? (y/n): " force_choice
-      if [ "$force_choice" = "y" ]; then
-        git branch -D "$CURRENT_BRANCH"
-        echo "✓ Force deleted local branch: $CURRENT_BRANCH"
-      fi
-    fi
-
-    # Delete remote branch
-    read -p "Delete remote branch? (y/n): " delete_remote_choice
-    if [ "$delete_remote_choice" = "y" ]; then
-      if git push origin --delete "$CURRENT_BRANCH" 2>/dev/null; then
-        echo "✓ Deleted remote branch: origin/$CURRENT_BRANCH"
-      else
-        echo "⚠️  Could not delete remote branch (may not exist)"
-      fi
-    fi
-  else
-    echo "✓ Keeping feature branch"
-  fi
-  fi
-fi
-
-# Update feature status
+# Mark feature status as In Review (PR open) or Complete (sequential)
 if [ -n "$FEATURE_DIR" ] && [ -f "$FEATURE_DIR/spec.md" ]; then
-  sed -i 's/^Status:.*/Status: Complete/' "$FEATURE_DIR/spec.md" 2>/dev/null || true
-  echo "✓ Updated feature status: Complete"
+  if [ "$SEQUENTIAL_BRANCH" = "true" ]; then
+    sed -i 's/^Status:.*/Status: Complete/' "$FEATURE_DIR/spec.md" 2>/dev/null || true
+    echo "✓ Updated feature status: Complete"
+  else
+    sed -i 's/^Status:.*/Status: In Review/' "$FEATURE_DIR/spec.md" 2>/dev/null || true
+    echo "✓ Updated feature status: In Review"
+  fi
 fi
+
+# Branch stays open until the PR is merged — no deletion here.
+echo "✓ Feature branch '$CURRENT_BRANCH' kept open (will be deleted when PR merges)"
 
 echo ""
 ```
@@ -679,14 +669,15 @@ echo ""
 
 ```bash
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🎉 $(echo "$WORKFLOW_TYPE" | sed 's/\b\(.\)/\u\1/') Complete!"
+echo "🎉 $(echo "$WORKFLOW_TYPE" | sed 's/\b\(.\)/\u\1/') Submitted!"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-echo "$(echo "$WORKFLOW_TYPE" | sed 's/\b\(.\)/\u\1/') $FEATURE_NUM: $FEATURE_TITLE"
+echo "$(echo "$WORKFLOW_TYPE" | sed 's/\b\(.\)/\u\1/') $FEATURE_NUM: ${FEATURE_TITLE:-<no title>}"
+echo ""
 
-if [ "$SKIP_COMMIT" = "false" ]; then
-  echo "✓ Changes committed"
+if [ "${SKIP_COMMIT:-false}" = "false" ]; then
+  echo "✓ Changes committed and pushed"
 fi
 
 if [ "$SEQUENTIAL_BRANCH" = "true" ]; then
@@ -694,41 +685,36 @@ if [ "$SEQUENTIAL_BRANCH" = "true" ]; then
   echo "✓ Tag created: feature-${FEATURE_NUM}-complete"
   echo ""
   echo "ℹ️  This is part of a sequential upgrade branch."
-  echo "   Continue with remaining features, then merge the entire branch to main."
-elif [ "$SKIP_MERGE" = "false" ]; then
-  echo "✓ Merged to: $PARENT_BRANCH"
-  if [ "$PARENT_BRANCH" != "$MAIN_BRANCH" ]; then
-    echo "ℹ️  Note: This is an intermediate merge. Complete $PARENT_BRANCH next."
+  echo "   Continue with remaining features, then open a PR for the entire branch."
+elif [ "$SKIP_PR" = "false" ]; then
+  echo "✓ Pull request opened against: $PARENT_BRANCH"
+  if [ -n "$PR_URL" ]; then
+    echo "  $PR_URL"
   fi
-  if [ "${delete_choice:-}" = "y" ]; then
-    echo "✓ Branch: Deleted"
+  if [ "$PARENT_BRANCH" != "$MAIN_BRANCH" ]; then
+    echo "ℹ️  Note: This is an intermediate PR. Once merged, complete $PARENT_BRANCH next."
   fi
 fi
 
 if [ -n "$FEATURE_DIR" ]; then
   echo ""
-  echo "📂 Feature Archive:"
-  echo "  $FEATURE_DIR"
+  echo "📂 Feature artifacts: $FEATURE_DIR"
 fi
 
 echo ""
 echo "🚀 Next Steps:"
 if [ "$SEQUENTIAL_BRANCH" = "true" ]; then
   echo "  - Continue with next feature in sequence"
-  echo "  - After all features complete, merge branch to main"
+  echo "  - After all features complete, open a PR for the entire branch"
   echo "  - Test the complete upgrade sequence"
-elif [ "$PARENT_BRANCH" != "$MAIN_BRANCH" ] && [ "$SKIP_MERGE" = "false" ]; then
-  echo "  - Complete the parent branch: /ss:complete"
-  echo "  - This will merge $PARENT_BRANCH to main"
+elif [ "$SKIP_PR" = "false" ]; then
+  echo "  - Review and address any PR feedback"
+  echo "  - Once the PR merges, the branch will be cleaned up by GitHub"
+  if [ "$PARENT_BRANCH" != "$MAIN_BRANCH" ]; then
+    echo "  - Complete the parent branch next: /ss:complete"
+  fi
 else
-  if grep -q '"deploy' package.json 2>/dev/null; then
-    echo "  - Deploy to staging: npm run deploy"
-  fi
-  if grep -q '"test:e2e' package.json 2>/dev/null; then
-    echo "  - Run E2E tests: npm run test:e2e"
-  fi
-  echo "  - Monitor production for issues"
-  echo "  - Update project documentation if needed"
+  echo "  - Branch is already up to date on $PARENT_BRANCH"
 fi
 echo ""
 ```
@@ -744,13 +730,11 @@ echo ""
 - Show issues
 - Offer to continue anyway or cancel
 
-**If merge conflicts:**
-- Provide clear resolution instructions
-- Suggest --continue flag for resume
+**If push fails:**
+- Exit with error; user must resolve (auth, diverged history) before retrying
 
-**If branch deletion fails:**
-- Offer force delete option
-- Allow keeping branch if user prefers
+**If `gh pr create` fails:**
+- Show the error output and print the manual `gh pr create` command to run
 
 ---
 
@@ -770,11 +754,11 @@ echo ""
 ✅ Diagnostic files cleaned up
 ✅ Pre-merge validation passed (or user acknowledged issues)
 ✅ Changes committed with proper message
-✅ Merged to main branch
-✅ Feature branch deleted (optional)
-✅ Feature status updated to Complete
+✅ Feature branch pushed to remote
+✅ Pull request opened against parent branch (or `--base` override)
+✅ Feature status updated to In Review
 
 ---
 
-**Workflow Coverage**: Completes ~100% of feature/bugfix lifecycle
+**Workflow Coverage**: Completes ~100% of feature/bugfix lifecycle through PR submission
 **User Experience**: Guided, safe, transparent completion process
